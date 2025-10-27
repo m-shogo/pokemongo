@@ -20,7 +20,7 @@
 4. **iPhone 画面を Windows にミラーする**
    - 次の A または B のどちらかを選んでください。
    - **A) 無線 (AirPlay) でミラー**
-     1. Windows に AirPlay 受信アプリ (AirServer / ApowerMirror / 5KPlayer / LonelyScreen など) をインストールします。
+     1. Windows に AirPlay 受信アプリ (無料で試す場合は LonelyScreen または 5KPlayer、有料でも安定優先なら AirServer 推奨) をインストールします。
      2. iPhone と Windows を同一 Wi-Fi に接続します。
      3. iPhone のコントロールセンター → 画面ミラーリング → Windows 側アプリを選択します。
      4. Windows 上に iPhone のミラーウィンドウが表示されます。
@@ -28,6 +28,25 @@
      1. Lightning → HDMI アダプタを iPhone に接続します。
      2. HDMI ケーブルで USB キャプチャカードに接続し、PC に差し込みます。
      3. Windows 側でキャプチャデバイスとして認識されているか確認します。
+
+### macOS 環境での事前準備（Windows と一緒に使う想定でも役立ちます）
+1. **ブラウザ準備**
+   - macOS に最新の Google Chrome または Microsoft Edge（Canary でも可）をインストールし、常に最新化しておきます。
+2. **Tampermonkey の導入**
+   - Windows と同じく Tampermonkey を追加し有効化します。
+3. **iPhone 画面を Mac にミラーする**
+   - **A) 無線 (AirPlay)**
+     1. macOS のメニューバー右上にあるコントロールセンターから「画面ミラーリング」を開きます。
+     2. 同一 Wi-Fi 内にある Mac を選ぶと、Mac 上に iPhone の画面が表示されます（macOS Monterey 以降推奨）。
+   - **B) 有線 (QuickTime Player)**
+     1. Lightning ケーブルで iPhone を Mac に接続します。
+     2. QuickTime Player を起動 → ファイル → 新規ムービー収録。
+     3. 録画ボタン横の矢印メニューから「カメラ」「マイク」に iPhone を指定すると、Mac 上でプレビューできます。
+   - **C) 有線 (キャプチャカード)**
+     1. Lightning → HDMI アダプタ → HDMI ケーブル → USB-C/USB-A キャプチャカードで Mac に入力します。
+     2. Chrome の `getUserMedia` からキャプチャデバイス名（例: Cam Link, HDMI Capture）を選択できます。
+4. **Windows 側ブラウザから Mac の映像を取得する**（オプション）
+   - AirPlay で Mac に映した画面を、さらに Windows 側へ画面共有する場合は、Microsoft Teams / Zoom / OBS の NDI などを経由し、Windows で受信する構成も取れます。
 
 ## 3. ユーザースクリプトの導入
 1. `docs/iv-ocr-tool.md` と同じリポジトリ内にある `tampermonkey/iv-ocr.user.js` を開き、全コードをコピーしてください。
@@ -41,6 +60,9 @@
 3. プレビューに iPhone の画面が表示されたら、校正ボタン (CP/HP/すな) をそれぞれ押し、プレビュー上で左上→右下の順に 2 回クリックして読み取り枠 (ROI) を作成します。
 4. 「保存」で枠の位置情報を `localStorage` に保存します。以後は自動読み込みされます。
 5. 「自動入力」を ON にすると、安定して読み取れた数値が自動的に入力欄へ転記されます。
+  - パネルが画面外に隠れる場合は、ヘッダー部分をドラッグして移動・位置を調整できます（位置は自動保存されます）。
+  - LonelyScreen など横幅が広いミラーアプリを表示する際は、ヘッダー右側の「拡大表示」ボタンでパネル幅を広げられます（再読み込み後も状態は保持されます）。
+  - ポケモン名・こうげき/ぼうぎょ/HPバーも自動入力させたい場合は、それぞれの「校正」ボタンで枠を追加してください。バーは横向きゲージ全体を囲むように指定すると精度が安定します。
 
 ## 5. 実装ポイント（TypeScript 視点で理解を深める）
 - スクリプトはプレーンな JavaScript ですが、`ROI` 型などは JSDoc で疑似的に型定義しており、TypeScript へ移植しやすい構造になっています。
@@ -50,6 +72,7 @@
   - ROI や設定値は `localStorage` や `IndexedDB` に保存し、初期化時に読み込む。
   - 状態管理は `useReducer` または Zustand などを使い、描画とロジックを分離する。
 - DOM への入力処理は、フォーム属性 (label の `for`、input の `name`/`id`/`placeholder`) を複合的に検索することで、UI 変更に強い実装になっています。
+- ポケモン名は `jpn+eng` モードで OCR し、入力欄 (`input[type="search"][placeholder="ポケモンを選択"]`) に反映します。こうげき/ぼうぎょ/HP はゲージ画像の塗りつぶし率を測定し、0～15 の整数に丸めて 9db の IV バー (`atk/def/hp`) へ反映しています。
 
 ## 6. よくあるエラーと対処法
 | 症状 | 原因の例 | 対処方法 |
@@ -68,6 +91,6 @@
 
 ## 8. 要約（高校生でも分かる説明）
 - iPhone のポケモン GO 画面をパソコンに映し、その映像から「CP」「HP」「ほしのすな」の数字だけを読み取ります。
-- 読み取った数字を、9db という計算サイトの入力欄に自動で入れます。
+- 読み取った数字やゲージから推定した IV を、9db という計算サイトの入力欄・IV バーに自動で入れます。ポケモン名も OCR で入力されます。
 - 最初に「数字が画面のどこにあるか」を枠で囲んで覚えさせれば、あとはスワイプするだけで次々に入力されます。
 - OCR (オーシーアール) は画像から文字を読み取る技術のことです。今回のスクリプトは Tesseract.js というライブラリを使っています。
