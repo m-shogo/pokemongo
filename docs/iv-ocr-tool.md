@@ -20,7 +20,7 @@
 4. **iPhone 画面を Windows にミラーする**
    - 次の A または B のどちらかを選んでください。
    - **A) 無線 (AirPlay) でミラー**
-     1. Windows に AirPlay 受信アプリ (無料で試す場合は LonelyScreen または 5KPlayer、有料でも安定優先なら AirServer 推奨) をインストールします。
+     1. Windows に AirPlay 受信アプリ (無料で使う場合は LetsView が扱いやすく、おすすめ。有料でも安定優先なら AirServer 推奨) をインストールします。
      2. iPhone と Windows を同一 Wi-Fi に接続します。
      3. iPhone のコントロールセンター → 画面ミラーリング → Windows 側アプリを選択します。
      4. Windows 上に iPhone のミラーウィンドウが表示されます。

@@ -18,6 +18,11 @@
    */
 
   /**
+   * ゲージ測定結果を表す型
+   * @typedef {{ratio:number,confidence:number}} GaugeSample
+   */
+
+  /**
    * スクリプト全体で使う状態オブジェクト
    * @typedef {{
    *   stream: MediaStream | null,
@@ -34,11 +39,12 @@
   *   lastName: string | null,
   *   lastIv: {atk: number | null, def: number | null, hp: number | null},
   *   stableBuf: {cp: number[], hp: number[], dust: number[]},
-  *   stableIvBuf: {atk: number[], def: number[], hp: number[]}
+  *   stableIvBuf: {atk: GaugeSample[], def: GaugeSample[], hp: GaugeSample[]}
    * }} OCRState
    */
 
   const LS_KEY = 'iv-ocr-roi-v1';
+  const LS_AUTO_SELECT_KEY = 'iv-ocr-auto-select-v1';
 
   /** @type {OCRState} */
   const STATE = {
@@ -49,6 +55,7 @@
     roi: loadROI(),
     running: false,
     autoFill: false,
+    autoSelectName: false,
     source: 'screen',
     calibTarget: 'none',
     loopId: null,
@@ -58,6 +65,12 @@
     stableBuf: { cp: [], hp: [], dust: [] },
     stableIvBuf: { atk: [], def: [], hp: [] },
   };
+
+  const NAME_CACHE = { names: [], expiry: 0 };
+  /** @type {number | null} */
+  let nameSelectionTimer = null;
+
+  STATE.autoSelectName = loadAutoSelectFlag();
 
   // ---------------------
   // UI 初期化
@@ -191,6 +204,10 @@
         <input type="checkbox" id="ivocr-autofill" />
         <label for="ivocr-autofill">自動入力</label>
       </div>
+      <div class="ivocr-row ivocr-toggle">
+        <input type="checkbox" id="ivocr-autoselect" />
+        <label for="ivocr-autoselect">候補を自動選択（先頭1件）</label>
+      </div>
       <div class="ivocr-row ivocr-small">
         Tips: 許可ダイアログでミラーウィンドウまたはキャプチャデバイスを選択してください。
       </div>
@@ -207,6 +224,7 @@
   const elValHp = panel.querySelector('#ivocr-val-hp');
   const elValDust = panel.querySelector('#ivocr-val-dust');
   const elAutoFill = /** @type {HTMLInputElement} */ (panel.querySelector('#ivocr-autofill'));
+  const elAutoSelect = /** @type {HTMLInputElement} */ (panel.querySelector('#ivocr-autoselect'));
   const btnCalibCp = panel.querySelector('#ivocr-calib-cp');
   const btnCalibHp = panel.querySelector('#ivocr-calib-hp');
   const btnCalibDust = panel.querySelector('#ivocr-calib-dust');
@@ -326,6 +344,18 @@
     STATE.autoFill = elAutoFill.checked;
   });
 
+  if (elAutoSelect) {
+    elAutoSelect.checked = STATE.autoSelectName;
+    elAutoSelect.addEventListener('change', () => {
+      STATE.autoSelectName = elAutoSelect.checked;
+      saveAutoSelectFlag(STATE.autoSelectName);
+      if (!STATE.autoSelectName && nameSelectionTimer !== null) {
+        window.clearTimeout(nameSelectionTimer);
+        nameSelectionTimer = null;
+      }
+    });
+  }
+
   elStart?.addEventListener('click', startCapture);
   elStop?.addEventListener('click', stopCapture);
 
@@ -357,9 +387,9 @@
 
   const throttledIv = throttle(() => {
     if (!STATE.canvasEl) return;
-    const ivs = readGauges(STATE.canvasEl, STATE.roi);
-    if (!ivs) return;
-    const stable = stabilizeIv(ivs, STATE.stableIvBuf);
+    const samples = readGauges(STATE.canvasEl, STATE.roi);
+    if (!samples) return;
+    const stable = stabilizeIvSamples(samples, STATE.stableIvBuf, STATE.lastIv);
     if (!stable) return;
     STATE.lastIv = stable;
     renderIv(stable);
@@ -370,15 +400,13 @@
 
   const throttledName = throttle(async () => {
     if (!STATE.canvasEl) return;
-    const raw = await readName(STATE.canvasEl, STATE.roi);
-    if (!raw) return;
-    const cleaned = sanitizeName(raw);
-    if (!cleaned) return;
-    if (cleaned === STATE.lastName) return;
-    STATE.lastName = cleaned;
-    renderName(cleaned);
+    const matched = await readPokemonName(STATE.canvasEl, STATE.roi, STATE.lastName);
+    if (!matched) return;
+    if (matched === STATE.lastName) return;
+    STATE.lastName = matched;
+    renderName(matched);
     if (STATE.autoFill) {
-      fillPokemonName(cleaned);
+      fillPokemonName(matched);
     }
   }, 1500);
 
@@ -612,6 +640,26 @@
     }
   }
 
+  function saveAutoSelectFlag(enabled) {
+    try {
+      localStorage.setItem(LS_AUTO_SELECT_KEY, JSON.stringify({ enabled }));
+    } catch (error) {
+      console.warn('[IV OCR] saveAutoSelectFlag error:', error);
+    }
+  }
+
+  function loadAutoSelectFlag() {
+    try {
+      const raw = localStorage.getItem(LS_AUTO_SELECT_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return Boolean(parsed?.enabled);
+    } catch (error) {
+      console.warn('[IV OCR] loadAutoSelectFlag error:', error);
+      return false;
+    }
+  }
+
   /**
    * ROI を可視化するための枠線を描画します。
    * @param {CanvasRenderingContext2D} ctx
@@ -731,39 +779,89 @@
     return null;
   }
 
-  function stabilizeIv(next, buffer) {
-    const out = { atk: null, def: null, hp: null };
+  // 直近のサンプルから中央値を用いて揺れを抑える
+  function stabilizeIvSamples(next, buffer, previous) {
+    const prev = previous ?? { atk: null, def: null, hp: null };
+    const result = {
+      atk: prev.atk ?? null,
+      def: prev.def ?? null,
+      hp: prev.hp ?? null,
+    };
+    let hasUpdate = false;
+
     ['atk', 'def', 'hp'].forEach((key) => {
-      const value = next[key];
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        buffer[key].push(value);
-        if (buffer[key].length > 3) buffer[key].shift();
+      const sample = next[key];
+      if (sample && Number.isFinite(sample.ratio) && Number.isFinite(sample.confidence)) {
+        buffer[key].push(sample);
+        if (buffer[key].length > 5) buffer[key].shift();
+
+        const latestRatio = buffer[key][buffer[key].length - 1].ratio;
+        const lastValue = prev[key];
+        if (lastValue !== null) {
+          const lastRatio = clamp(lastValue / 15, 0, 1);
+          if (Math.abs(latestRatio - lastRatio) > 0.35) {
+            const keep = buffer[key].slice(-2);
+            buffer[key].splice(0, buffer[key].length, ...keep);
+          }
+        }
+
+        const filtered = buffer[key].filter((item) => Math.abs(item.ratio - latestRatio) <= 0.35);
+        if (filtered.length) {
+          const trimmed = filtered.slice(-4);
+          buffer[key].splice(0, buffer[key].length, ...trimmed);
+        } else {
+          buffer[key].splice(0, buffer[key].length - 1);
+        }
       }
-      if (buffer[key].length === 3) {
-        const sorted = [...buffer[key]].sort((a, b) => a - b);
-        out[key] = sorted[1];
+
+      const validSamples = buffer[key].filter((item) => item.confidence >= 0.35);
+      if (validSamples.length < 3) return;
+
+      const ratios = validSamples.map((item) => item.ratio).sort((a, b) => a - b);
+      const medianRatio = ratios[Math.floor(ratios.length / 2)] ?? null;
+      if (medianRatio === null) return;
+
+      const candidate = clamp(Math.round(medianRatio * 15), 0, 15);
+      const recent = validSamples
+        .slice(-3)
+        .map((item) => clamp(Math.round(item.ratio * 15), 0, 15));
+      const recentStable = recent.length === 3 && recent.every((value) => value === recent[0]);
+      const maxConfidence = validSamples.reduce((max, item) => Math.max(max, item.confidence), 0);
+      const lastValue = prev[key];
+
+      if (
+        recentStable ||
+        lastValue === null ||
+        Math.abs(candidate - lastValue) >= 1 ||
+        maxConfidence >= 0.6
+      ) {
+        if (result[key] !== candidate) {
+          result[key] = candidate;
+          hasUpdate = true;
+        }
       }
     });
-    if (out.atk !== null || out.def !== null || out.hp !== null) return out;
-    return null;
+
+    return hasUpdate ? result : null;
   }
 
   function readGauges(preview, roi) {
+    /** @type {{atk: GaugeSample | null, def: GaugeSample | null, hp: GaugeSample | null}} */
     const result = { atk: null, def: null, hp: null };
-    if (roi.atkGauge) result.atk = measureGauge(preview, roi.atkGauge);
-    if (roi.defGauge) result.def = measureGauge(preview, roi.defGauge);
-    if (roi.hpGauge) result.hp = measureGauge(preview, roi.hpGauge);
-    if (result.atk === null && result.def === null && result.hp === null) return null;
+    if (roi.atkGauge) result.atk = measureGaugeRobust(preview, roi.atkGauge);
+    if (roi.defGauge) result.def = measureGaugeRobust(preview, roi.defGauge);
+    if (roi.hpGauge) result.hp = measureGaugeRobust(preview, roi.hpGauge);
+    if (!result.atk && !result.def && !result.hp) return null;
     return result;
   }
 
-  function measureGauge(preview, roi) {
+  // ゲージの塗りつぶし率と信頼度を推定
+  function measureGaugeRobust(preview, roi) {
     const canvas = cropCanvasRaw(preview, roi);
     const ctx = canvas.getContext('2d');
     const { width, height } = canvas;
     if (!width || !height) return null;
 
-    // ゲージ中央帯だけを平均化し、背景の影響を減らす
     const bandTop = Math.floor(height * 0.35);
     const bandBottom = Math.ceil(height * 0.65);
     const bandHeight = Math.max(1, bandBottom - bandTop);
@@ -786,39 +884,48 @@
     const base = sorted[Math.floor(sorted.length * 0.1)] ?? 0;
     const peak = sorted[Math.floor(sorted.length * 0.9)] ?? 0;
     const dynamicRange = peak - base;
-    if (!Number.isFinite(dynamicRange) || dynamicRange < 5) return null;
+    if (!Number.isFinite(dynamicRange) || dynamicRange < 4) return null;
     const threshold = base + dynamicRange * 0.25;
 
     let filled = -1;
     let consecutiveMiss = 0;
+    let maxGap = 0;
+    let hitCount = 0;
     const tolerance = Math.max(2, Math.floor(width * 0.05));
     for (let x = 0; x < width; x += 1) {
       if (smoothed[x] >= threshold) {
         filled = x;
+        hitCount += 1;
         consecutiveMiss = 0;
       } else if (filled !== -1) {
         consecutiveMiss += 1;
+        if (consecutiveMiss > maxGap) {
+          maxGap = consecutiveMiss;
+        }
         if (consecutiveMiss > tolerance) {
           break;
         }
       }
     }
 
-    if (filled < 0) return 0;
+    if (filled < 0) return null;
     let ratio = (filled + 1) / width;
 
-    // ピンクバーなど満タン時は極端にピクセルが高くなるため補正
     const rightTail = smoothed.slice(Math.max(0, width - Math.floor(width * 0.08)));
     const tailAvg = rightTail.length ? rightTail.reduce((sum, v) => sum + v, 0) / rightTail.length : 0;
     if (tailAvg >= threshold * 0.95) {
       ratio = 1;
     }
 
-    let iv = Math.round(ratio * 15);
-    if (iv >= 14 && ratio > 0.93) {
-      iv = 15;
-    }
-    return clamp(iv, 0, 15);
+    const signalStrength = clamp(dynamicRange / 60, 0, 1);
+    const coverageScore = clamp(hitCount / Math.max(width * 0.35, 1), 0, 1);
+    const gapScore = 1 - clamp(maxGap / Math.max(width * 0.15, 1), 0, 1);
+    const confidence = clamp(signalStrength * 0.55 + coverageScore * 0.25 + gapScore * 0.2, 0, 1);
+
+    return {
+      ratio: clamp(ratio, 0, 1),
+      confidence,
+    };
   }
 
   /**
@@ -859,7 +966,7 @@
       toast('名前領域を検出できませんでした。画面を少しズームして再試行してください。');
       return;
     }
-    STATE.roi.hpGauge = STATE.roi.hpGauge ?? hpRoi;
+    STATE.roi.hpGauge = hpRoi;
     STATE.roi.name = nameRoi;
     toast('HPバーと名前枠を自動設定しました。保存ボタンで確定できます。');
   }
@@ -1136,6 +1243,7 @@
   }
 
   function detectNameAboveBar(preview, hpRoi) {
+    // HPバー中心から名前帯を推定し、中央揃えの領域を切り出す
     const hpPx = normToPx(hpRoi, preview);
     const bar = {
       x: Math.round(hpPx.x * preview.width),
@@ -1145,69 +1253,94 @@
     };
     if (!bar.w || !bar.h) return null;
 
-    const searchWidth = Math.min(preview.width, Math.round(bar.w * 1.1));
-    const searchLeft = clamp(bar.x + Math.round(bar.w * 0.5) - Math.round(searchWidth * 0.5), 0, Math.max(0, preview.width - searchWidth));
-    const searchBottom = clamp(bar.y - Math.round(bar.h * 0.3), 0, preview.height);
-    const searchTop = clamp(searchBottom - Math.max(Math.round(bar.h * 14), Math.round(preview.height * 0.05)), 0, searchBottom);
-    const searchHeight = Math.max(1, searchBottom - searchTop);
-
-    if (searchHeight < 4) return null;
-
+    const bandWidth = Math.min(preview.width, Math.round(bar.w * 1.2));
+    const bandHeight = Math.max(Math.round(bar.h * 3.3), Math.round(preview.height * 0.04));
+    const centerX = clamp(bar.x + Math.round(bar.w * 0.5), 0, preview.width);
+    const anchorTop = clamp(bar.y - Math.round(bar.h * 3.6), 0, preview.height);
+    const left = clamp(Math.round(centerX - bandWidth * 0.5), 0, Math.max(0, preview.width - bandWidth));
+    const top = clamp(anchorTop - Math.round(bandHeight * 0.5), 0, Math.max(0, preview.height - bandHeight));
     const roi = {
-      x: searchLeft / preview.width,
-      y: searchTop / preview.height,
-      w: searchWidth / preview.width,
-      h: searchHeight / preview.height,
+      x: left / preview.width,
+      y: top / preview.height,
+      w: bandWidth / preview.width,
+      h: bandHeight / preview.height,
     };
 
+    return tightenByWhiteProjection(preview, roi);
+  }
+
+  function tightenByWhiteProjection(preview, roi) {
+    const px = normToPx(roi, preview);
+    if (!px.w || !px.h) return roi;
     const canvas = cropCanvasRaw(preview, roi);
     const ctx = canvas.getContext('2d');
-    const { width: w, height: h } = canvas;
-    if (!w || !h) return null;
-    const data = ctx.getImageData(0, 0, w, h).data;
+    if (!ctx) return roi;
+    const { width, height } = canvas;
+    if (!width || !height) return roi;
 
-    let minX = w;
-    let minY = h;
-    let maxX = -1;
-    let maxY = -1;
-    for (let y = 0; y < h; y += 1) {
-      for (let x = 0; x < w; x += 1) {
-        const idx = (y * w + x) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        const score = computeWhiteScore(r, g, b);
-        if (score >= 18) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
+    const image = ctx.getImageData(0, 0, width, height).data;
+    const rowScore = new Array(height).fill(0);
+    const colScore = new Array(width).fill(0);
+
+    for (let y = 0; y < height; y += 1) {
+      let sumRow = 0;
+      for (let x = 0; x < width; x += 1) {
+        const idx = (y * width + x) * 4;
+        const score = computeWhiteScore(image[idx], image[idx + 1], image[idx + 2]);
+        sumRow += score;
+        colScore[x] += score;
+      }
+      rowScore[y] = sumRow / Math.max(width, 1);
+    }
+
+    for (let x = 0; x < width; x += 1) {
+      colScore[x] = colScore[x] / Math.max(height, 1);
+    }
+
+    const maxRow = Math.max(...rowScore);
+    const maxCol = Math.max(...colScore);
+    if (!Number.isFinite(maxRow) || !Number.isFinite(maxCol) || maxRow < 8 || maxCol < 5) {
+      return roi;
+    }
+
+    const rowThresh = maxRow * 0.28;
+    const colThresh = maxCol * 0.32;
+
+    let topRow = rowScore.findIndex((value) => value >= rowThresh);
+    let bottomRow = -1;
+    for (let y = height - 1; y >= 0; y -= 1) {
+      if (rowScore[y] >= rowThresh) {
+        bottomRow = y;
+        break;
       }
     }
+    if (topRow < 0 || bottomRow < 0) return roi;
 
-    if (maxX === -1 || maxY === -1) {
-      const fallbackTop = clamp(Math.round(searchTop + searchHeight * 0.25), 0, preview.height);
-      const fallbackBottom = clamp(Math.round(searchTop + searchHeight * 0.55), fallbackTop + 1, preview.height);
-      return {
-        x: searchLeft / preview.width,
-        y: fallbackTop / preview.height,
-        w: searchWidth / preview.width,
-        h: Math.max(1, fallbackBottom - fallbackTop) / preview.height,
-      };
+    let leftCol = colScore.findIndex((value) => value >= colThresh);
+    let rightCol = -1;
+    for (let x = width - 1; x >= 0; x -= 1) {
+      if (colScore[x] >= colThresh) {
+        rightCol = x;
+        break;
+      }
     }
+    if (leftCol < 0 || rightCol < 0) return roi;
 
-    const marginX = Math.max(4, Math.floor(w * 0.05));
-    const marginY = Math.max(3, Math.floor(h * 0.06));
-    minX = clamp(minX - marginX, 0, w - 1);
-    maxX = clamp(maxX + marginX, 0, w - 1);
-    minY = clamp(minY - marginY, 0, h - 1);
-    maxY = clamp(maxY + marginY, 0, h - 1);
+    const marginY = Math.max(1, Math.floor(height * 0.08));
+    const marginX = Math.max(1, Math.floor(width * 0.05));
 
-    const absLeft = searchLeft + minX;
-    const absTop = searchTop + minY;
-    const absRight = searchLeft + maxX + 1;
-    const absBottom = searchTop + maxY + 1;
+    topRow = clamp(topRow - marginY, 0, height - 1);
+    bottomRow = clamp(bottomRow + marginY, 0, height - 1);
+    leftCol = clamp(leftCol - marginX, 0, width - 1);
+    rightCol = clamp(rightCol + marginX, 0, width - 1);
+
+    if (bottomRow <= topRow) bottomRow = Math.min(height - 1, topRow + Math.max(3, Math.floor(height * 0.2)));
+    if (rightCol <= leftCol) rightCol = Math.min(width - 1, leftCol + Math.max(3, Math.floor(width * 0.2)));
+
+    const absLeft = px.x + leftCol;
+    const absTop = px.y + topRow;
+    const absRight = px.x + rightCol + 1;
+    const absBottom = px.y + bottomRow + 1;
 
     return {
       x: absLeft / preview.width,
@@ -1217,26 +1350,104 @@
     };
   }
 
-  async function readName(preview, roi) {
-    if (!roi.name) return null;
-    const canvas = cropCanvasRaw(preview, roi.name);
+  async function readPokemonName(preview, roi, lastAccepted) {
+    // カタカナ専用OCRで読み取り、先頭一致で候補を絞り込む
+    let target = roi.name;
+    if (!target && roi.hpGauge) {
+      target = detectNameAboveBar(preview, roi.hpGauge);
+      if (target) {
+        STATE.roi.name = target;
+      }
+    }
+    if (!target) return null;
+
+    const canvas = cropCanvasRaw(preview, target);
     if (!canvas.width || !canvas.height) return null;
+
     try {
-      const res = await TesseractLib.recognize(canvas, 'jpn+eng', {
+      const res = await TesseractLib.recognize(canvas, 'jpn', {
+        tessedit_char_whitelist: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンヴァィゥェォッャュョー',
         psm: 7,
       });
-      return res?.data?.text ?? '';
+      const confidence = Number(res?.data?.confidence ?? 0);
+      const normalized = normalizeKatakana(res?.data?.text ?? '');
+      if (normalized.length < 2) return null;
+      if (confidence < 25 && normalized.length < 3) return null;
+
+      const matched = matchPokemonNameCandidate(normalized, lastAccepted);
+      if (!matched) return null;
+
+      return matched;
     } catch (error) {
-      console.warn('[IV OCR] readName error:', error);
+      console.warn('[IV OCR] readPokemonName error:', error);
       return null;
     }
   }
 
-  function sanitizeName(text) {
+  function matchPokemonNameCandidate(katakana, lastAccepted) {
+    // 先頭1〜3文字の一致で既存候補と照合
+    const candidates = collectPokemonNameCandidates();
+    const prefixes = [katakana.slice(0, 3), katakana.slice(0, 2), katakana.slice(0, 1)].filter(Boolean);
+    const found = candidates.find((name) => prefixes.some((prefix) => name.startsWith(prefix)));
+    if (found) return found;
+    if (lastAccepted && prefixes.some((prefix) => lastAccepted.startsWith(prefix))) {
+      return lastAccepted;
+    }
+    return null;
+  }
+
+  function collectPokemonNameCandidates() {
+    // ページ内の候補リストをざっくり収集してキャッシュ
+    const now = Date.now();
+    if (NAME_CACHE.names.length && now < NAME_CACHE.expiry) {
+      return NAME_CACHE.names;
+    }
+
+    const seen = new Set();
+    const push = (value) => {
+      if (!value) return;
+      const normalized = normalizeKatakana(value);
+      if (normalized.length >= 2) {
+        seen.add(normalized);
+      }
+    };
+
+    document.querySelectorAll('[data-name-kana]').forEach((el) => {
+      push(el.getAttribute('data-name-kana') || '');
+    });
+    document.querySelectorAll('[data-name-katakana]').forEach((el) => {
+      push(el.getAttribute('data-name-katakana') || '');
+    });
+    document.querySelectorAll('[data-name]').forEach((el) => {
+      push(el.getAttribute('data-name') || '');
+    });
+    document.querySelectorAll('option').forEach((option) => {
+      push(option.textContent || '');
+    });
+    document.querySelectorAll('.pokemon_name, .pokemon-list__name, .wiki_pokemon_name, .list_pokemon a').forEach((el) => {
+      push(el.textContent || '');
+    });
+
+    const searchInput = document.querySelector('input[type="search"][placeholder="ポケモンを選択"]');
+    if (searchInput && searchInput.value) {
+      push(searchInput.value);
+    }
+
+    NAME_CACHE.names = Array.from(seen);
+    NAME_CACHE.expiry = now + 15000;
+    return NAME_CACHE.names;
+  }
+
+  function normalizeKatakana(text) {
     if (!text) return '';
-    const normalized = text.replace(/[\r\n]+/g, '').replace(/\s+/g, '').replace(/[☆★]/g, '').trim();
-    if (normalized.length < 2) return '';
-    return normalized;
+    const normalized = text.normalize('NFKC').replace(/[\r\n\s]+/g, '');
+    const hira = katakanaToHiragana(normalized);
+    const kata = hiraganaToKatakana(hira);
+    return kata.replace(/[^ァ-ヴー゛゜ヵヶ]/g, '');
+  }
+
+  function hiraganaToKatakana(str) {
+    return str.replace(/[ぁ-ん]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
   }
 
   // ---------------------
@@ -1258,19 +1469,138 @@
   }
 
   function fillIvBars(iv) {
-    if (typeof iv.atk === 'number') applyIvValue('atk', iv.atk);
-    if (typeof iv.def === 'number') applyIvValue('def', iv.def);
-    if (typeof iv.hp === 'number') applyIvValue('hp', iv.hp);
+    reflectIvToDom(iv);
   }
 
   function fillPokemonName(name) {
     const input = document.querySelector('input[type="search"][placeholder="ポケモンを選択"]');
     if (!input) return;
-    if (input.value === name) return;
+    const same = input.value === name;
     input.focus();
-    input.value = name;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    if (!same) {
+      input.value = name;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (STATE.autoSelectName) {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    scheduleTopCandidateSelection();
+  }
+
+  // サジェストが開いたら先頭候補をクリックする
+  function scheduleTopCandidateSelection() {
+    if (!STATE.autoSelectName) return;
+    if (nameSelectionTimer !== null) {
+      window.clearTimeout(nameSelectionTimer);
+      nameSelectionTimer = null;
+    }
+
+    let attempts = 0;
+
+    const trySelect = () => {
+      if (!STATE.autoSelectName) {
+        nameSelectionTimer = null;
+        return;
+      }
+      const cell = findTopVisibleNameCandidate();
+      if (cell) {
+        const rect = cell.getBoundingClientRect();
+        const opts = { view: window, bubbles: true, cancelable: true, clientX: rect.left + 4, clientY: rect.top + 4 };
+        cell.dispatchEvent(new MouseEvent('mousedown', opts));
+        cell.dispatchEvent(new MouseEvent('mouseup', opts));
+        cell.dispatchEvent(new MouseEvent('click', opts));
+        nameSelectionTimer = null;
+        return;
+      }
+
+      attempts += 1;
+      if (attempts >= 8) {
+        nameSelectionTimer = null;
+        return;
+      }
+      nameSelectionTimer = window.setTimeout(trySelect, 120);
+    };
+
+    nameSelectionTimer = window.setTimeout(trySelect, 120);
+  }
+
+  // 画面上で表示状態の候補リストから最上段セルを見つける
+  function findTopVisibleNameCandidate() {
+    const containers = Array.from(document.querySelectorAll('.disp_n, .search_result, .pokemon_list')); // 9db 内の候補一覧クラスをざっくり網羅
+    for (const container of containers) {
+      if (!(container instanceof HTMLElement)) continue;
+      const style = window.getComputedStyle(container);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        continue;
+      }
+      const cell = container.querySelector('table tbody tr td, table tr td, .pokemon-list__name, .list_pokemon td, .pokemon_list td');
+      if (cell instanceof HTMLElement) {
+        return cell;
+      }
+    }
+    return null;
+  }
+
+  // DOM が置き換わっても IV 表示を復元するためのヘルパー
+  const reflectIvToDom = createIvDomReflector();
+
+  function createIvDomReflector() {
+    /** @type {{atk:number|null,def:number|null,hp:number|null}} */
+    let lastApplied = { atk: null, def: null, hp: null };
+    /** @type {MutationObserver | null} */
+    let observer = null;
+
+    const applySingle = (kind, value) => {
+      const span = document.getElementById(`wiki_${kind}`);
+      if (span) {
+        const anchors = Array.from(span.querySelectorAll('a[data-val]'));
+        anchors.forEach((anchor) => {
+          anchor.classList.remove('iv_active', 'bar_maxr');
+        });
+        if (typeof value === 'number') {
+          anchors.forEach((anchor) => {
+            const val = Number(anchor.dataset.val || '0');
+            if (val <= value) {
+              anchor.classList.add('iv_active');
+            }
+            if (val === value) {
+              anchor.classList.add('bar_maxr');
+            }
+          });
+        }
+      }
+
+      const hidden = document.querySelector(`input[name="${kind}"][data-id="${kind}"]`);
+      if (hidden && typeof value === 'number' && hidden.value !== String(value)) {
+        hidden.value = String(value);
+        hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        hidden.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    };
+
+    const applyAll = () => {
+      applySingle('atk', lastApplied.atk);
+      applySingle('def', lastApplied.def);
+      applySingle('hp', lastApplied.hp);
+    };
+
+    const ensureObserver = () => {
+      if (observer || !document.body) return;
+      observer = new MutationObserver(() => {
+        applyAll();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    };
+
+    return (values) => {
+      lastApplied = {
+        atk: typeof values.atk === 'number' ? values.atk : lastApplied.atk,
+        def: typeof values.def === 'number' ? values.def : lastApplied.def,
+        hp: typeof values.hp === 'number' ? values.hp : lastApplied.hp,
+      };
+      ensureObserver();
+      applyAll();
+    };
   }
 
   /**
@@ -1283,36 +1613,6 @@
     input.value = value;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  function applyIvValue(kind, value) {
-    const iv = clamp(Math.round(value), 0, 15);
-    const hidden = document.querySelector(`input[name="${kind}"][data-id="${kind}"]`);
-    if (hidden) {
-      hidden.value = String(iv);
-      hidden.dispatchEvent(new Event('input', { bubbles: true }));
-      hidden.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    const span = document.getElementById(`wiki_${kind}`);
-    if (!span) return;
-    const anchors = Array.from(span.querySelectorAll('a[data-val]'));
-    anchors.forEach((anchor) => {
-      const val = Number(anchor.dataset.val || '0');
-      if (iv === 0) {
-        anchor.classList.remove('iv_active', 'bar_maxr');
-        return;
-      }
-      if (val <= iv) {
-        anchor.classList.add('iv_active');
-      } else {
-        anchor.classList.remove('iv_active');
-      }
-      if (val === iv) {
-        anchor.classList.add('bar_maxr');
-      } else {
-        anchor.classList.remove('bar_maxr');
-      }
-    });
   }
 
   /**
