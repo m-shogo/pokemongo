@@ -9,6 +9,7 @@
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
 // @connect      raw.githubusercontent.com
+// @connect      pokemongo-get.com
 // @require      https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js
 // ==/UserScript==
 
@@ -67,6 +68,20 @@
   const LS_AUTO_SELECT_KEY = 'iv-ocr-auto-select-v1';
   const SCRIPT_RAW_URL = 'https://raw.githubusercontent.com/m-shogo/pokemongo/main/tampermonkey/iv-ocr.user.js';
   const SCRIPT_CACHE = { text: null, fetchedAt: 0 };
+  /** @typedef {'super' | 'hyper' | 'master'} LeagueKey */
+  /** @typedef {{html: string | null, fetchedAt: number}} LeagueCache */
+  const LEAGUE_CONFIG = {
+    super: { url: 'https://pokemongo-get.com/pvpranking/?league=0', title: 'スーパーリーグ' },
+    hyper: { url: 'https://pokemongo-get.com/pvpranking/?league=1', title: 'ハイパーリーグ' },
+    master: { url: 'https://pokemongo-get.com/pvpranking/?league=2', title: 'マスターリーグ' },
+  };
+  /** @type {Record<LeagueKey, LeagueCache>} */
+  const LEAGUE_CACHE = {
+    super: { html: null, fetchedAt: 0 },
+    hyper: { html: null, fetchedAt: 0 },
+    master: { html: null, fetchedAt: 0 },
+  };
+  const LEAGUE_CACHE_TTL = 15 * 60 * 1000;
   const LS_THEME_KEY = 'iv-ocr-theme-contrast';
   const LS_ONBOARD_KEY = 'iv-ocr-onboarded';
   const ROI_LEGENDS = [
@@ -305,9 +320,10 @@
     }
     .ivocr-copy-note { font-size: 11px; color:#bdbdbd; line-height: 1.5; margin-top: 6px; }
     .ivocr-accordion { border-top:1px solid #2a2a2a; margin-top:12px; padding-top:8px; display:flex; flex-direction:column; gap:8px; }
-    .ivocr-accordion__btn { width:100%; text-align:left; background:#1a1a1a; color:#e0e0e0; border:1px solid #333; border-radius:6px; padding:8px 10px; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; }
+    .ivocr-accordion__btn { width:100%; text-align:left; background:#1a1a1a; color:#e0e0e0; border:1px solid #333; border-radius:6px; padding:8px 10px; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; transition:background 0.2s ease; }
     .ivocr-accordion__btn:hover { background:#232323; }
-    .ivocr-accordion__panel { display:none; border:1px solid #2a2a2a; border-radius:6px; padding:8px 10px; background:#151515; }
+    .ivocr-accordion__btn.is-open { background:#2a2a2a; }
+    .ivocr-accordion__panel { display:none; border:1px solid #353535; border-radius:6px; padding:8px 10px; background:#1d1d1d; }
     .ivocr-accordion__panel.open { display:block; }
     .ivocr-tooltip { position:relative; }
     .ivocr-tooltip[data-tip]:hover::after {
@@ -365,9 +381,25 @@
     .ivocr-theme-toggle { border:1px solid #555; background:#1f1f1f; color:#fff; border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer; }
     .ivocr-theme-contrast .ivocr-theme-toggle { background:#e0e0e0; color:#111; border-color:#bbb; }
     .ivocr-contrast .ivocr-toast { color:#111; }
+    .ivocr-league-accordion { margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+    .ivocr-league-table { max-height:520px; overflow:auto; border:1px solid #353535; border-radius:8px; padding:8px; background:#1b1b1b; }
+    .ivocr-league-table table { width:100%; border-collapse:collapse; font-size:11px; color:#f2f2f2; background-color: #ffffff; }
+    .ivocr-league-table th, .ivocr-league-table td { border-bottom:1px solid #313131; padding:4px 6px; }
+    .ivocr-league-table tr:last-child th, .ivocr-league-table tr:last-child td { border-bottom:none; }
+    .ivocr-league-table img { max-width:64px; height:auto; display:block; margin:0 auto; }
+    .ivocr-error { color:#f44336; font-size:12px; }
+    .ivocr-theme-contrast .ivocr-league-table { background:#fff; color:#111; border-color:#ccc; }
+    .ivocr-theme-contrast .ivocr-league-table table { color:#111; }
+    .ivocr-league-table .table-par { display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 5px;}
+    .ivocr-league-table .table-par + .table-par { margin-top: 5px; }
+    .text-center{ text-align: center; }
+    .ivocr-theme-contrast .ivocr-error { color:#d32f2f; }
   `);
 
-  const panel = document.createElement('div');
+    const panel = document.createElement('div');
   panel.className = 'ivocr-panel';
   panel.innerHTML = `
     <div class="ivocr-header">
@@ -570,6 +602,32 @@
       <div class="ivocr-row ivocr-small">
         Tips: 許可ダイアログでミラーウィンドウまたはキャプチャデバイスを選択してください。
       </div>
+      <div class="ivocr-accordion ivocr-league-accordion" id="ivocr-league-accordion">
+        <div>
+          <button class="ivocr-accordion__btn" data-accordion-toggle="league-super">スーパーリーグ<span>開く</span></button>
+          <div class="ivocr-accordion__panel" data-accordion-panel="league-super">
+            <div id="ivocr-league-super" class="ivocr-league-table">
+              <div class="ivocr-small">スーパーリーグのランキングを読み込み中です…</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <button class="ivocr-accordion__btn" data-accordion-toggle="league-hyper">ハイパーリーグ<span>開く</span></button>
+          <div class="ivocr-accordion__panel" data-accordion-panel="league-hyper">
+            <div id="ivocr-league-hyper" class="ivocr-league-table">
+              <div class="ivocr-small">ハイパーリーグのランキングを読み込み中です…</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <button class="ivocr-accordion__btn" data-accordion-toggle="league-master">マスターリーグ<span>開く</span></button>
+          <div class="ivocr-accordion__panel" data-accordion-panel="league-master">
+            <div id="ivocr-league-master" class="ivocr-league-table">
+              <div class="ivocr-small">マスターリーグのランキングを読み込み中です…</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
   document.body.appendChild(panel);
@@ -607,6 +665,11 @@
   const elIvAtk = panel.querySelector('#ivocr-iv-atk');
   const elIvDef = panel.querySelector('#ivocr-iv-def');
   const elIvHp = panel.querySelector('#ivocr-iv-hp');
+  const leagueContainers = {
+    super: panel.querySelector('#ivocr-league-super'),
+    hyper: panel.querySelector('#ivocr-league-hyper'),
+    master: panel.querySelector('#ivocr-league-master'),
+  };
 
   const calibButtonMap = {
     cp: btnCalibCp,
@@ -633,6 +696,11 @@
   restorePanelWideState();
   STATE.theme = loadThemePreference();
   applyTheme(STATE.theme);
+  setupAccordions(panel);
+  /** @type {Array<'super' | 'hyper' | 'master'>} */ (['super', 'hyper', 'master']).forEach((leagueKey) => {
+    // 各リーグのランキングをあらかじめ取得しておく
+    loadLeagueTable(leagueKey, /** @type {HTMLElement | null} */ (leagueContainers[leagueKey]));
+  });
   if (headerEl) {
     enablePanelDrag(headerEl);
   }
@@ -1129,6 +1197,118 @@
     if (!(btnHelp instanceof HTMLElement)) return;
     btnHelp.setAttribute('aria-expanded', String(isOpen));
     btnHelp.classList.toggle('is-active', isOpen);
+  }
+
+  /**
+   * アコーディオン全体の初期化（ヘルプ内・リーグ内の両方）
+   * @param {HTMLElement | null} root
+   */
+  function setupAccordions(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const groups = root.querySelectorAll('.ivocr-accordion');
+    groups.forEach((group) => initAccordionGroup(group));
+  }
+
+  /**
+   * 単一のアコーディオングループに開閉イベントを設定
+   * @param {Element} groupEl
+   */
+  function initAccordionGroup(groupEl) {
+    if (!(groupEl instanceof HTMLElement)) return;
+    const toggles = Array.from(groupEl.querySelectorAll('[data-accordion-toggle]'));
+    const panels = Array.from(groupEl.querySelectorAll('[data-accordion-panel]'));
+    toggles.forEach((toggleEl) => {
+      if (!(toggleEl instanceof HTMLButtonElement)) return;
+      if (toggleEl.dataset.accordionBound === 'true') return;
+      toggleEl.dataset.accordionBound = 'true';
+      updateAccordionButtonState(toggleEl, false);
+      toggleEl.addEventListener('click', () => {
+        const key = toggleEl.dataset.accordionToggle;
+        if (!key) return;
+        const panelEl = groupEl.querySelector(`[data-accordion-panel="${key}"]`);
+        if (!(panelEl instanceof HTMLElement)) return;
+        const willOpen = !panelEl.classList.contains('open');
+        panels.forEach((panelNode) => {
+          if (!(panelNode instanceof HTMLElement)) return;
+          const panelKey = panelNode.getAttribute('data-accordion-panel');
+          panelNode.classList.remove('open');
+          const relatedToggle = groupEl.querySelector(`[data-accordion-toggle="${panelKey}"]`);
+          if (relatedToggle instanceof HTMLButtonElement) {
+            updateAccordionButtonState(relatedToggle, false);
+          }
+        });
+        if (willOpen) {
+          panelEl.classList.add('open');
+          updateAccordionButtonState(toggleEl, true);
+        }
+      });
+    });
+  }
+
+  /**
+   * ボタンのラベルと状態を開閉に合わせて更新
+   * @param {HTMLButtonElement} button
+   * @param {boolean} isOpen
+   */
+  function updateAccordionButtonState(button, isOpen) {
+    button.setAttribute('aria-expanded', String(isOpen));
+    button.classList.toggle('is-open', isOpen);
+    const labelSpan = button.querySelector('span');
+    if (labelSpan instanceof HTMLElement) {
+      labelSpan.textContent = isOpen ? '閉じる' : '開く';
+    }
+  }
+
+  /**
+   * 指定リーグのランキングテーブルを取得し、パネル内に描画する
+   * @param {LeagueKey} leagueKey
+   * @param {HTMLElement | null} containerEl
+   */
+  function loadLeagueTable(leagueKey, containerEl) {
+    if (!(containerEl instanceof HTMLElement)) return;
+    const config = LEAGUE_CONFIG[leagueKey];
+    const cache = LEAGUE_CACHE[leagueKey];
+    if (!config || !cache) return;
+
+    const now = Date.now();
+    if (cache.html && now - cache.fetchedAt < LEAGUE_CACHE_TTL) {
+      containerEl.innerHTML = cache.html;
+      return;
+    }
+
+    containerEl.innerHTML = `<div class="ivocr-small">${config.title}のランキングを読み込み中です…</div>`;
+
+    // GM_xmlhttpRequest なら CORS 制約を回避して公式データを取得できる
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: config.url,
+      timeout: 8000,
+      onload(response) {
+        try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(response.responseText, 'text/html');
+          const table = doc.querySelector('.battle-ranking-table.bold');
+          if (!(table instanceof HTMLTableElement)) {
+            throw new Error('ランキング表が見つかりませんでした');
+          }
+          const fragmentHost = document.createElement('div');
+          fragmentHost.appendChild(document.importNode(table, true));
+          const html = fragmentHost.innerHTML;
+          cache.html = html;
+          cache.fetchedAt = Date.now();
+          containerEl.innerHTML = html;
+        } catch (error) {
+          console.warn(`[IV OCR] ${leagueKey} league parse error:`, error);
+          containerEl.innerHTML = `<div class="ivocr-error">${config.title}のデータ解析に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}</div>`;
+        }
+      },
+      onerror() {
+        containerEl.innerHTML = `<div class="ivocr-error">${config.title}の取得中にネットワークエラーが発生しました。</div>`;
+      },
+      ontimeout() {
+        containerEl.innerHTML = `<div class="ivocr-error">${config.title}の取得がタイムアウトしました。</div>`;
+      },
+    });
   }
 
   /**
@@ -2574,3 +2754,8 @@
   updateCalibButtonState();
 
 })();
+
+
+
+
+
