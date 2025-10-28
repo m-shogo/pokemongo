@@ -26,6 +26,13 @@
    */
 
   /**
+   * 名前サジェストボタンに使う型
+   * @typedef {'match' | 'prefix' | 'last'} NameSuggestionSource
+   * @typedef {{label: string, value: string, source: NameSuggestionSource}} NameSuggestion
+   * @typedef {{matched: string | null, normalized: string, suggestions: NameSuggestion[]}} NameReadResult
+   */
+
+  /**
    * スクリプト全体で使う状態オブジェクト
    * @typedef {{
    *   stream: MediaStream | null,
@@ -48,7 +55,11 @@
    *   lastAutoFillAt: number | null,
    *   ocrStats: {attempts: number, successes: number},
    *   theme: 'default' | 'contrast',
-   *   onboardingSeen: boolean
+  *   onboardingSeen: boolean,
+  *   nameSuggestions: NameSuggestion[],
+  *   lastNameNormalized: string,
+  *   activeNameValue: string | null,
+  *   manualNameOverride: string | null
    * }} OCRState
    */
 
@@ -110,6 +121,10 @@
     ocrStats: { attempts: 0, successes: 0 },
     theme: 'default',
     onboardingSeen: false,
+    nameSuggestions: [],
+    lastNameNormalized: '',
+    activeNameValue: null,
+    manualNameOverride: null,
   };
 
   const NAME_CACHE = { names: [], expiry: 0 };
@@ -166,6 +181,12 @@
     .ivocr-row { display:flex; gap:8px; align-items:center; margin:6px 0; flex-wrap:wrap; }
     .ivocr-row label { font-size: 12px; color: #ccc; }
     .ivocr-row input[type="number"] { width: 80px; }
+    .ivocr-name-suggestions { display:flex; gap:6px; flex-wrap:wrap; }
+    .ivocr-name-suggestions button { padding:4px 8px; font-size:11px; border:1px solid #444; border-radius:6px; background:#1b1b1b; color:#f2f2f2; cursor:pointer; transition:background 0.2s ease,color 0.2s ease,border-color 0.2s ease; }
+    .ivocr-name-suggestions button:hover { background:#2a2a2a; }
+    .ivocr-name-suggestions button[data-source="prefix"] { border-style:dashed; }
+    .ivocr-name-suggestions button[data-source="last"] { border-color:#555; color:#ccc; }
+    .ivocr-name-suggestions button.is-active { border-color:#f06292; color:#f06292; }
     .ivocr-btn { padding: 6px 10px; font-size: 12px; border: 1px solid #444; background:#1f1f1f; color:#fff; border-radius:6px; cursor:pointer; }
     .ivocr-btn:hover { background:#2a2a2a; }
     .ivocr-btn[data-calib] {
@@ -333,6 +354,11 @@
     .ivocr-theme-contrast .ivocr-copy-note { color:#444; }
     .ivocr-theme-contrast .ivocr-btn { background:#fafafa; color:#111; border-color:#bbb; }
     .ivocr-theme-contrast .ivocr-btn:hover { background:#f0f0f0; }
+    .ivocr-theme-contrast .ivocr-name-suggestions button { background:#fff; color:#111; border-color:#bbb; }
+    .ivocr-theme-contrast .ivocr-name-suggestions button:hover { background:#f0f0f0; }
+    .ivocr-theme-contrast .ivocr-name-suggestions button[data-source="prefix"] { border-style:dashed; }
+    .ivocr-theme-contrast .ivocr-name-suggestions button[data-source="last"] { border-color:#999; color:#555; }
+    .ivocr-theme-contrast .ivocr-name-suggestions button.is-active { border-color:#d81b60; color:#d81b60; }
     .ivocr-theme-contrast .ivocr-fieldset { border-color:#c7c7c7; }
     .ivocr-theme-contrast .ivocr-legend { color:#333; }
     .ivocr-theme-contrast .ivocr-legend-badge { background:#f9f9f9; border-color:#d0d0d0; color:#222; }
@@ -514,6 +540,10 @@
         <span id="ivocr-name">-</span>
       </div>
       <div class="ivocr-row">
+        <label>候補</label>
+        <div id="ivocr-name-suggestions" class="ivocr-name-suggestions"></div>
+      </div>
+      <div class="ivocr-row">
         <label>最新値</label>
         <span>CP: <span id="ivocr-val-cp">-</span></span>
         <span>HP: <span id="ivocr-val-hp">-</span></span>
@@ -573,6 +603,7 @@
   const btnThemeToggle = panel.querySelector('#ivocr-theme-toggle');
   const headerEl = panel.querySelector('.ivocr-header');
   const elName = panel.querySelector('#ivocr-name');
+  const elNameSuggestions = panel.querySelector('#ivocr-name-suggestions');
   const elIvAtk = panel.querySelector('#ivocr-iv-atk');
   const elIvDef = panel.querySelector('#ivocr-iv-def');
   const elIvHp = panel.querySelector('#ivocr-iv-hp');
@@ -700,6 +731,25 @@
     });
   }
 
+  if (elNameSuggestions instanceof HTMLElement) {
+    elNameSuggestions.addEventListener('click', (event) => {
+      // 候補ボタン経由で検索欄へ即座に転記する
+      const target = event.target;
+      if (!(target instanceof HTMLButtonElement)) return;
+      const { value } = target.dataset;
+      if (!value) return;
+      fillPokemonName(value);
+      const source = target.dataset.source;
+      STATE.manualNameOverride = value;
+      STATE.lastName = value;
+      if (STATE.nameSuggestions.length) {
+        const normalized = STATE.lastNameNormalized || '';
+        const matchedForRender = source === 'prefix' ? STATE.lastName : value;
+        renderName({ matched: matchedForRender ?? null, normalized, suggestions: STATE.nameSuggestions }, value);
+      }
+    });
+  }
+
   elStart?.addEventListener('click', startCapture);
   elStop?.addEventListener('click', stopCapture);
 
@@ -812,11 +862,28 @@
 
   const throttledName = throttle(async () => {
     if (!STATE.canvasEl) return;
-    const matched = await readPokemonName(STATE.canvasEl, STATE.roi, STATE.lastName);
-    if (!matched) return;
-    if (matched === STATE.lastName) return;
+    const result = await readPokemonName(STATE.canvasEl, STATE.roi, STATE.lastName);
+    if (!result) return;
+    const manual = STATE.manualNameOverride;
+    if (manual) {
+      const stillCandidate = result.suggestions.some((item) => item.value === manual);
+      if (stillCandidate) {
+        renderName(result, manual);
+        if (STATE.autoFill) {
+          fillPokemonName(manual);
+        }
+        if (STATE.lastName !== manual) {
+          STATE.lastName = manual;
+        }
+        return;
+      }
+      STATE.manualNameOverride = null;
+    }
+
+    renderName(result);
+    const matched = result.matched;
+    if (!matched || matched === STATE.lastName) return;
     STATE.lastName = matched;
-    renderName(matched);
     if (STATE.autoFill) {
       fillPokemonName(matched);
     }
@@ -844,8 +911,54 @@
     if (elValDust) elValDust.textContent = values.dust?.toString() ?? '-';
   }
 
-  function renderName(name) {
-    if (elName) elName.textContent = name ?? '-';
+  /**
+   * OCRから得られた名前情報と候補ボタンを同時に描画する
+   * @param {NameReadResult | null} result
+   * @param {string | null} [activeValue]
+   */
+  function renderName(result, activeValue) {
+    const matched = result?.matched ?? null;
+    const normalized = result?.normalized ?? '';
+    const suggestions = result?.suggestions ?? [];
+    STATE.nameSuggestions = suggestions;
+    STATE.lastNameNormalized = normalized;
+
+    if (typeof activeValue === 'string') {
+      STATE.manualNameOverride = activeValue;
+    }
+
+    let manualValue = typeof activeValue === 'string' ? activeValue : STATE.manualNameOverride;
+    if (manualValue && !suggestions.some((item) => item.value === manualValue)) {
+      manualValue = null;
+      if (typeof activeValue !== 'string') {
+        STATE.manualNameOverride = null;
+      }
+    }
+
+    const displayText = manualValue ?? matched ?? (normalized || '-');
+
+    STATE.activeNameValue = manualValue ?? matched ?? null;
+
+    if (elName) {
+      elName.textContent = displayText || '-';
+    }
+
+    if (!(elNameSuggestions instanceof HTMLElement)) return;
+    elNameSuggestions.replaceChildren();
+    if (!suggestions.length) return;
+
+    const highlight = STATE.activeNameValue;
+    for (const suggestion of suggestions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = suggestion.label;
+      btn.dataset.value = suggestion.value;
+      btn.dataset.source = suggestion.source;
+      if (highlight && suggestion.value === highlight) {
+        btn.classList.add('is-active');
+      }
+      elNameSuggestions.appendChild(btn);
+    }
   }
 
   function renderIv(iv) {
@@ -1887,7 +2000,7 @@
   }
 
   async function readPokemonName(preview, roi, lastAccepted) {
-    // カタカナ専用OCRで読み取り、先頭一致で候補を絞り込む
+    // カタカナ専用OCRで読み取り、候補ボタン生成に必要な情報をまとめる
     let target = roi.name;
     if (!target && roi.hpGauge) {
       target = detectNameAboveBar(preview, roi.hpGauge);
@@ -1910,26 +2023,72 @@
       if (normalized.length < 2) return null;
       if (confidence < 25 && normalized.length < 3) return null;
 
-      const matched = matchPokemonNameCandidate(normalized, lastAccepted);
-      if (!matched) return null;
-
-      return matched;
+      return createNameReadResult(normalized, lastAccepted);
     } catch (error) {
       console.warn('[IV OCR] readPokemonName error:', error);
       return null;
     }
   }
 
-  function matchPokemonNameCandidate(katakana, lastAccepted) {
-    // 先頭1〜3文字の一致で既存候補と照合
+  /**
+   * OCR文字列をもとに候補リストを構築する
+   * @param {string} katakana
+   * @param {string | null} lastAccepted
+   * @returns {NameReadResult}
+   */
+  function createNameReadResult(katakana, lastAccepted) {
     const candidates = collectPokemonNameCandidates();
-    const prefixes = [katakana.slice(0, 3), katakana.slice(0, 2), katakana.slice(0, 1)].filter(Boolean);
-    const found = candidates.find((name) => prefixes.some((prefix) => name.startsWith(prefix)));
-    if (found) return found;
-    if (lastAccepted && prefixes.some((prefix) => lastAccepted.startsWith(prefix))) {
-      return lastAccepted;
+    const prefixes = Array.from(new Set([
+      katakana,
+      katakana.slice(0, 4),
+      katakana.slice(0, 3),
+      katakana.slice(0, 2),
+      katakana.slice(0, 1),
+    ].filter(Boolean)));
+
+    /** @type {string[]} */
+    const matches = [];
+    for (const prefix of prefixes) {
+      for (const name of candidates) {
+        if (!name.startsWith(prefix)) continue;
+        if (matches.includes(name)) continue;
+        matches.push(name);
+        if (matches.length >= 6) break;
+      }
+      if (matches.length >= 6) break;
     }
-    return null;
+
+    if (!matches.length && lastAccepted && prefixes.some((prefix) => lastAccepted.startsWith(prefix))) {
+      matches.push(lastAccepted);
+    }
+
+    /** @type {NameSuggestion[]} */
+    const suggestions = [];
+    const seen = new Set();
+
+    for (const name of matches) {
+      if (!name || seen.has(name)) continue;
+      suggestions.push({ label: name, value: name, source: 'match' });
+      seen.add(name);
+    }
+
+    if (lastAccepted && !seen.has(lastAccepted)) {
+      suggestions.push({ label: `${lastAccepted} (直前)`, value: lastAccepted, source: 'last' });
+      seen.add(lastAccepted);
+    }
+
+    const prefixSuggestions = prefixes.filter((prefix) => prefix.length >= 2).slice(0, 3);
+    for (const prefix of prefixSuggestions) {
+      if (seen.has(prefix)) continue;
+      suggestions.push({ label: `${prefix}で検索`, value: prefix, source: 'prefix' });
+      seen.add(prefix);
+    }
+
+    return {
+      matched: matches[0] ?? null,
+      normalized: katakana,
+      suggestions: suggestions.slice(0, 6),
+    };
   }
 
   function collectPokemonNameCandidates() {
@@ -1979,7 +2138,12 @@
     const normalized = text.normalize('NFKC').replace(/[\r\n\s]+/g, '');
     const hira = katakanaToHiragana(normalized);
     const kata = hiraganaToKatakana(hira);
-    return kata.replace(/[^ァ-ヴー゛゜ヵヶ]/g, '');
+    let cleaned = kata.replace(/[^ァ-ヴー゛゜ヵヶ]/g, '');
+    // 先頭に長音「ー」や濁点記号だけが残るケースを除去し、実際のカタカナ文字から開始する
+    while (cleaned.length && !/[ァ-ヴヵヶ]/.test(cleaned[0])) {
+      cleaned = cleaned.slice(1);
+    }
+    return cleaned;
   }
 
   function hiraganaToKatakana(str) {
@@ -2404,7 +2568,7 @@
   // ---------------------
 
   renderValues({ cp: null, hp: null, dust: null });
-  renderName(null);
+  renderName({ matched: null, normalized: '', suggestions: [] });
   renderIv({ atk: null, def: null, hp: null });
   updateStatus('Idle');
   updateCalibButtonState();
