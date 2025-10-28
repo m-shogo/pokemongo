@@ -6,6 +6,9 @@
 // @author       you
 // @match        https://9db.jp/pokemongo/data/6606*
 // @grant        GM_addStyle
+// @grant        GM_setClipboard
+// @grant        GM_xmlhttpRequest
+// @connect      raw.githubusercontent.com
 // @require      https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js
 // ==/UserScript==
 
@@ -45,6 +48,8 @@
 
   const LS_KEY = 'iv-ocr-roi-v1';
   const LS_AUTO_SELECT_KEY = 'iv-ocr-auto-select-v1';
+  const SCRIPT_RAW_URL = 'https://raw.githubusercontent.com/m-shogo/pokemongo/main/tampermonkey/iv-ocr.user.js';
+  const SCRIPT_CACHE = { text: null, fetchedAt: 0 };
 
   /** @type {OCRState} */
   const STATE = {
@@ -98,12 +103,50 @@
     .ivocr-header-actions button { cursor:pointer; }
     .ivocr-header-actions .ivocr-btn-mini { padding:4px 8px; font-size:11px; border-radius:6px; border:1px solid #555; background:#2a2a2a; color:#fff; }
     .ivocr-header-actions .ivocr-btn-mini:hover { background:#353535; }
+    .ivocr-help-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 1px solid #555;
+      background: #1f1f1f;
+      color: #fce4ec;
+      font-size: 13px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      transition: background 0.2s ease;
+    }
+    .ivocr-help-btn:hover { background:#333; }
     .ivocr-body { padding: 8px 12px; overflow-y: auto; flex: 1; }
     .ivocr-row { display:flex; gap:8px; align-items:center; margin:6px 0; flex-wrap:wrap; }
     .ivocr-row label { font-size: 12px; color: #ccc; }
     .ivocr-row input[type="number"] { width: 80px; }
     .ivocr-btn { padding: 6px 10px; font-size: 12px; border: 1px solid #444; background:#1f1f1f; color:#fff; border-radius:6px; cursor:pointer; }
     .ivocr-btn:hover { background:#2a2a2a; }
+    .ivocr-btn[data-calib] {
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+    }
+    .ivocr-btn[data-calib="cp"]:hover,
+    .ivocr-btn[data-calib="cp"].is-active { border-color:#00e5ff; color:#00e5ff; box-shadow:0 0 10px rgba(0,229,255,0.35); }
+    .ivocr-btn[data-calib="hp"]:hover,
+    .ivocr-btn[data-calib="hp"].is-active { border-color:#ffd54f; color:#ffd54f; box-shadow:0 0 10px rgba(255,213,79,0.35); }
+    .ivocr-btn[data-calib="dust"]:hover,
+    .ivocr-btn[data-calib="dust"].is-active { border-color:#a5d6a7; color:#a5d6a7; box-shadow:0 0 10px rgba(165,214,167,0.35); }
+    .ivocr-btn[data-calib="name"]:hover,
+    .ivocr-btn[data-calib="name"].is-active { border-color:#f06292; color:#f06292; box-shadow:0 0 10px rgba(240,98,146,0.35); }
+    .ivocr-btn[data-calib="atkGauge"]:hover,
+    .ivocr-btn[data-calib="atkGauge"].is-active { border-color:#ff7043; color:#ff7043; box-shadow:0 0 10px rgba(255,112,67,0.35); }
+    .ivocr-btn[data-calib="defGauge"]:hover,
+    .ivocr-btn[data-calib="defGauge"].is-active { border-color:#26a69a; color:#26a69a; box-shadow:0 0 10px rgba(38,166,154,0.35); }
+    .ivocr-btn[data-calib="hpGauge"]:hover,
+    .ivocr-btn[data-calib="hpGauge"].is-active { border-color:#7e57c2; color:#7e57c2; box-shadow:0 0 10px rgba(126,87,194,0.35); }
+    .ivocr-btn[data-calib="autoStat"]:hover,
+    .ivocr-btn[data-calib="autoStat"].is-active { border-color:#ffb74d; color:#ffb74d; box-shadow:0 0 10px rgba(255,183,77,0.35); }
+    .ivocr-btn[data-calib="autoName"]:hover,
+    .ivocr-btn[data-calib="autoName"].is-active { border-color:#ba68c8; color:#ba68c8; box-shadow:0 0 10px rgba(186,104,200,0.35); }
     .ivocr-toggle { display:flex; align-items:center; gap:6px; }
     .ivocr-preview-container {
       position: relative;
@@ -129,6 +172,73 @@
     .ivocr-badge { padding:2px 6px; border-radius:4px; background:#333; color:#ddd; font-size:11px; }
     .ivocr-panel.ivocr-wide .ivocr-preview-container { max-height: calc(85vh); }
     .ivocr-small { font-size: 11px; color:#aaa; }
+    .ivocr-help-popup {
+      position: absolute;
+      top: 52px;
+      right: 16px;
+      width: min(320px, calc(100vw - 48px));
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+      background: #141414;
+      color: #f5f5f5;
+      border: 1px solid #333;
+      border-radius: 8px;
+      box-shadow: 0 12px 24px rgba(0,0,0,.45);
+      padding: 16px;
+      font-size: 13px;
+      display: none;
+      z-index: 1000000;
+    }
+    .ivocr-help-popup.open { display: block; }
+    .ivocr-help-popup__header {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      font-weight:600;
+      font-size:15px;
+      margin-bottom:8px;
+    }
+    .ivocr-help-popup__section { margin-bottom: 16px; }
+    .ivocr-help-popup__title { font-weight: 600; font-size: 14px; margin: 0 0 6px 0; }
+    .ivocr-help-popup__text { margin: 0 0 6px 0; line-height: 1.6; }
+    .ivocr-help-popup__list { margin: 4px 0 6px 0; padding-left: 18px; line-height: 1.6; }
+    .ivocr-help-popup__list--numbered { list-style: decimal; }
+    .ivocr-help-popup__list--alpha { list-style: upper-alpha; }
+    .ivocr-help-popup__list--nested { list-style: disc; margin-top: 4px; }
+    .ivocr-help-popup__subhead { font-weight: 600; margin: 6px 0 4px 0; }
+    .ivocr-help-popup__foot { font-size: 11px; color: #bbb; line-height: 1.5; border-top: 1px solid #2a2a2a; padding-top: 8px; }
+    .ivocr-help-close {
+      border: 1px solid #555;
+      background: transparent;
+      color: #eee;
+      border-radius: 6px;
+      font-size: 14px;
+      width: 28px;
+      height: 24px;
+      cursor: pointer;
+    }
+    .ivocr-help-close:hover { background:#2e2e2e; }
+    .ivocr-copy-btn {
+      width: 100%;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid #4a90e2;
+      background: linear-gradient(135deg, #1976d2, #42a5f5);
+      color: #fff;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+    }
+    .ivocr-copy-btn:hover { box-shadow: 0 3px 12px rgba(25,118,210,0.4); transform: translateY(-1px); }
+    .ivocr-copy-btn:disabled {
+      opacity: 0.65;
+      cursor: default;
+      box-shadow: none;
+      transform: none;
+    }
+    .ivocr-copy-note { font-size: 11px; color:#bdbdbd; line-height: 1.5; margin-top: 6px; }
   `);
 
   const panel = document.createElement('div');
@@ -138,9 +248,109 @@
       <div class="ivocr-header-title">
         <div>IV OCR</div>
         <div class="ivocr-badge">Beta</div>
+        <button class="ivocr-help-btn" id="ivocr-help-btn" type="button" data-ignore-drag="true">?</button>
       </div>
       <div class="ivocr-header-actions" data-ignore-drag="true">
         <button class="ivocr-btn-mini" id="ivocr-wide-toggle">拡大表示</button>
+      </div>
+    </div>
+    <div class="ivocr-help-popup" id="ivocr-help-popup" data-ignore-drag="true">
+      <div class="ivocr-help-popup__header">
+        <span>使い方ガイド</span>
+        <button class="ivocr-help-close" id="ivocr-help-close" type="button" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="ivocr-help-popup__section">
+        <h3 class="ivocr-help-popup__title">1. まずはここから（クイックスタート）</h3>
+        <ol class="ivocr-help-popup__list ivocr-help-popup__list--numbered">
+          <li><strong>開始ボタンを押す</strong>とミラーアプリやキャプチャデバイスを選ぶ画面が出ます。選択後、プレビューに iPhone 画面が表示されます。</li>
+          <li><strong>枠を作る</strong>: 「校正: CP」などを押して、プレビュー上で左上→右下の順に2クリック。CP/HP/ほしのすな等の数値を囲みます。</li>
+          <li><strong>保存する</strong>: 枠が揃ったら「保存」で位置を記憶。次回以降は自動で読み込まれます。</li>
+          <li><strong>自動入力する</strong>: 「自動入力」にチェックを入れると、読み取った値とIVゲージが 9db のフォームに転記されます。</li>
+          <li><strong>名前やゲージも読みたい</strong>場合は、「校正: 名前」「自動: ラベル→バー」などで枠を追加してください。</li>
+        </ol>
+      </div>
+      <div class="ivocr-help-popup__section">
+        <h3 class="ivocr-help-popup__title">2. パネルのボタンと表示の見方</h3>
+        <ul class="ivocr-help-popup__list">
+          <li><strong>プレビュー上で 2クリック</strong>: 左上→右下の順にクリックして読み取り枠 (ROI) を作成します。ズレたら再度クリックで上書きできます。</li>
+          <li><strong>校正系ボタン (CP/HP/すな/名前/こうげきバー/ぼうぎょバー/HPバー)</strong>: それぞれの値やゲージの位置を指定するためのボタンです。押した状態でプレビューを2クリックすると範囲が保存されます。</li>
+          <li><strong>自動: ラベル→バー</strong>: 画面上の「こうげき」「ぼうぎょ」「HP」ラベル付近をクリックすると、対応する横バーを自動検出します。</li>
+          <li><strong>自動: HPバー→名前</strong>: HPゲージの緑部分をクリックすると、その上にあるポケモン名の枠を推定して設定します。</li>
+          <li><strong>保存</strong>: 作成した枠をブラウザの <code>localStorage</code> に保存します。再読み込みしても枠が維持されます。</li>
+          <li><strong>枠クリア</strong>: すべての枠をリセットします。再設定したいときに使用してください。</li>
+          <li><strong>状態</strong>: 現在の動作状況を表示します。例)「Idle」は待機中、「稼働中」は読み取りを実行中、「停止」はキャプチャを止めた状態です。</li>
+          <li><strong>名前 / 最新値 / IV推定</strong>: 最新のOCR結果を確認する欄です。値が安定すると数字が入り、読み取れていないと <code>-</code> のままです。</li>
+          <li><strong>自動入力</strong>: チェックすると、安定した値を9dbの入力欄とIVバーへ自動転記します。精度に不安がある場合はオフのまま手動確認しましょう。</li>
+          <li><strong>候補を自動選択（先頭1件）</strong>: ポケモン名の入力候補リストが開いたら先頭の1件を自動クリックします。誤検出が心配なときはオフにしてください。</li>
+        </ul>
+      </div>
+      <div class="ivocr-help-popup__section">
+        <h3 class="ivocr-help-popup__title">3. スクリプトを準備する</h3>
+        <p class="ivocr-help-popup__text">Tampermonkey に貼るコードは下のボタンで一括コピーできます。貼り付け先が空だったとしても上書きされるので安心です。</p>
+        <button class="ivocr-copy-btn" id="ivocr-copy-script" type="button" data-ignore-drag="true">コードをコピー</button>
+        <ol class="ivocr-help-popup__list ivocr-help-popup__list--numbered">
+          <li>ブラウザ右上の Tampermonkey アイコン → 「ダッシュボード」を開きます。</li>
+          <li>「+ 新規スクリプト」を押し、エディタを全選択して削除します。</li>
+          <li>コピーしたコードを貼り付けて保存します。</li>
+          <li>9db の IV 計算ページを再読み込みすると、右下にこのパネルが表示されます。</li>
+        </ol>
+        <p class="ivocr-copy-note">コピーがうまくいかない場合は数秒待ってから再試行し、ブラウザのポップアップブロックやネットワーク状況をご確認ください。</p>
+      </div>
+      <div class="ivocr-help-popup__section">
+        <h3 class="ivocr-help-popup__title">4. このツールの目的と仕組み</h3>
+        <ul class="ivocr-help-popup__list">
+          <li><strong>目的:</strong> iPhone 上の Pokémon GO 画面を Windows PC にミラー表示し、9db IV 計算ページ (https://9db.jp/pokemongo/data/6606) に自動入力します。</li>
+          <li>スワイプなどの操作は手動。<strong>数値入力だけ</strong>このツールが肩代わりします。</li>
+          <li>入力ソースは 2 種類あります。
+            <ul class="ivocr-help-popup__list ivocr-help-popup__list--nested">
+              <li>画面共有: AirPlay ミラーアプリのウィンドウを <code>getDisplayMedia</code> でキャプチャ。</li>
+              <li>キャプチャカード: Lightning-&gt;HDMI-&gt;USB で繋いだ映像を <code>getUserMedia</code> で取り込み。</li>
+            </ul>
+          </li>
+          <li>映像から <code>Tesseract.js</code> で CP/HP/ほしのすなを OCR し、9db の DOM を自動で書き換えます。</li>
+          <li>フォーム探索はラベル (<code>CP</code> / <code>HP</code> など) や <code>name</code> / <code>id</code> / <code>placeholder</code> を組み合わせて実施しているので、多少のUI変更にも耐性があります。</li>
+        </ul>
+      </div>
+      <div class="ivocr-help-popup__section">
+        <h3 class="ivocr-help-popup__title">5. Windows + iOS の事前準備</h3>
+        <ol class="ivocr-help-popup__list ivocr-help-popup__list--numbered">
+          <li><strong>ブラウザ</strong>: Windows に最新の Google Chrome または Microsoft Edge をインストールし、常に更新しておきます。</li>
+          <li><strong>Tampermonkey</strong>: ブラウザ拡張ストアから追加し、有効化します。</li>
+          <li><strong>9db ページ</strong>: https://9db.jp/pokemongo/data/6606 を開いておきます。</li>
+          <li><strong>iPhone を Windows に映す</strong>
+            <ol class="ivocr-help-popup__list ivocr-help-popup__list--alpha" type="A">
+              <li><strong>無線 (AirPlay)</strong>
+                <ul class="ivocr-help-popup__list ivocr-help-popup__list--nested">
+                  <li>無料なら LetsView がシンプル。有料で安定重視なら AirServer も選択肢です。</li>
+                  <li>iPhone と PC を同じ Wi-Fi に接続し、コントロールセンター → 画面ミラーリングで PC 側アプリを選びます。</li>
+                </ul>
+              </li>
+              <li><strong>有線 (キャプチャカード)</strong>
+                <ul class="ivocr-help-popup__list ivocr-help-popup__list--nested">
+                  <li>Lightning-&gt;HDMI アダプタ → HDMI ケーブル → USB キャプチャカードで PC に接続します。</li>
+                  <li>ブラウザがキャプチャデバイスを認識しているか確認します。</li>
+                </ul>
+              </li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+      <div class="ivocr-help-popup__section">
+        <h3 class="ivocr-help-popup__title">6. macOS での準備（必要な場合）</h3>
+        <ol class="ivocr-help-popup__list ivocr-help-popup__list--numbered">
+          <li>最新の Chrome または Edge をインストールし、Tampermonkey を追加します。</li>
+          <li><strong>iPhone を Mac に映す方法</strong>
+            <ol class="ivocr-help-popup__list ivocr-help-popup__list--alpha" type="A">
+              <li><strong>無線 (AirPlay)</strong>: コントロールセンター → 画面ミラーリングで Mac を選択 (macOS Monterey 以降推奨)。</li>
+              <li><strong>有線 (QuickTime)</strong>: Lightning ケーブルで接続し、QuickTime Player → 新規ムービー収録 → カメラ/マイクに iPhone を指定。</li>
+              <li><strong>有線 (キャプチャカード)</strong>: Lightning-&gt;HDMI アダプタとキャプチャカードで入力し、Chrome の <code>getUserMedia</code> からデバイスを選びます。</li>
+            </ol>
+          </li>
+          <li><strong>オプション</strong>: Mac に映した画面を Teams / Zoom / OBS NDI などで Windows へ再配信する構成も可能です。</li>
+        </ol>
+      </div>
+      <div class="ivocr-help-popup__foot">
+        ヒント: 画面を明るく・大きく映すほど OCR 精度が安定します。枠がずれたら再校正し、「拡大表示」でパネル幅を広げると操作しやすくなります。
       </div>
     </div>
     <div class="ivocr-body">
@@ -160,24 +370,24 @@
         <span class="ivocr-small">プレビュー上で 2クリック（左上→右下）で枠を作成</span>
       </div>
       <div class="ivocr-row">
-        <button class="ivocr-btn" id="ivocr-calib-cp">校正: CP</button>
-        <button class="ivocr-btn" id="ivocr-calib-hp">校正: HP</button>
-        <button class="ivocr-btn" id="ivocr-calib-dust">校正: すな</button>
+        <button class="ivocr-btn" id="ivocr-calib-cp" data-calib="cp">校正: CP</button>
+        <button class="ivocr-btn" id="ivocr-calib-hp" data-calib="hp">校正: HP</button>
+        <button class="ivocr-btn" id="ivocr-calib-dust" data-calib="dust">校正: すな</button>
         <button class="ivocr-btn" id="ivocr-save">保存</button>
         <button class="ivocr-btn" id="ivocr-clear">枠クリア</button>
       </div>
       <div class="ivocr-row">
-        <button class="ivocr-btn" id="ivocr-calib-name">校正: 名前</button>
-        <button class="ivocr-btn" id="ivocr-calib-atk">校正: こうげきバー</button>
-        <button class="ivocr-btn" id="ivocr-calib-def">校正: ぼうぎょバー</button>
-        <button class="ivocr-btn" id="ivocr-calib-hpbar">校正: HPバー</button>
+        <button class="ivocr-btn" id="ivocr-calib-name" data-calib="name">校正: 名前</button>
+        <button class="ivocr-btn" id="ivocr-calib-atk" data-calib="atkGauge">校正: こうげきバー</button>
+        <button class="ivocr-btn" id="ivocr-calib-def" data-calib="defGauge">校正: ぼうぎょバー</button>
+        <button class="ivocr-btn" id="ivocr-calib-hpbar" data-calib="hpGauge">校正: HPバー</button>
       </div>
       <div class="ivocr-row">
-        <button class="ivocr-btn" id="ivocr-auto-stat">自動: ラベル→バー</button>
+        <button class="ivocr-btn" id="ivocr-auto-stat" data-calib="autoStat">自動: ラベル→バー</button>
         <span class="ivocr-small">ラベル付近をクリックすると対応バーを自動検出</span>
       </div>
       <div class="ivocr-row">
-        <button class="ivocr-btn" id="ivocr-auto-name">自動: HPバー→名前</button>
+        <button class="ivocr-btn" id="ivocr-auto-name" data-calib="autoName">自動: HPバー→名前</button>
         <span class="ivocr-small">HPゲージの緑部分をクリックで名前枠を自動設定</span>
       </div>
       <div class="ivocr-row">
@@ -237,10 +447,26 @@
   const btnSave = panel.querySelector('#ivocr-save');
   const btnClear = panel.querySelector('#ivocr-clear');
   const btnWideToggle = panel.querySelector('#ivocr-wide-toggle');
+  const btnHelp = panel.querySelector('#ivocr-help-btn');
+  const helpPopup = panel.querySelector('#ivocr-help-popup');
+  const btnHelpClose = panel.querySelector('#ivocr-help-close');
+  const btnCopyScript = panel.querySelector('#ivocr-copy-script');
   const elName = panel.querySelector('#ivocr-name');
   const elIvAtk = panel.querySelector('#ivocr-iv-atk');
   const elIvDef = panel.querySelector('#ivocr-iv-def');
   const elIvHp = panel.querySelector('#ivocr-iv-hp');
+
+  const calibButtonMap = {
+    cp: btnCalibCp,
+    hp: btnCalibHp,
+    dust: btnCalibDust,
+    name: btnCalibName,
+    atkGauge: btnCalibAtk,
+    defGauge: btnCalibDef,
+    hpGauge: btnCalibHpBar,
+    autoStat: btnAutoStat,
+    autoName: btnAutoName,
+  };
 
   STATE.canvasEl = elCanvas;
   STATE.ctx = elCanvas.getContext('2d');
@@ -275,6 +501,7 @@
       STATE.calibTarget = 'none';
       clickStep = 0;
       tempStart = null;
+      updateCalibButtonState();
       return;
     }
 
@@ -283,6 +510,7 @@
       STATE.calibTarget = 'none';
       clickStep = 0;
       tempStart = null;
+      updateCalibButtonState();
       return;
     }
 
@@ -300,27 +528,24 @@
       STATE.calibTarget = 'none';
       clickStep = 0;
       tempStart = null;
+      updateCalibButtonState();
       toast('枠を保存する場合は「保存」ボタンを押してください。');
     }
   });
 
-  btnCalibCp?.addEventListener('click', () => { STATE.calibTarget = 'cp'; clickStep = 0; tempStart = null; });
-  btnCalibHp?.addEventListener('click', () => { STATE.calibTarget = 'hp'; clickStep = 0; tempStart = null; });
-  btnCalibDust?.addEventListener('click', () => { STATE.calibTarget = 'dust'; clickStep = 0; tempStart = null; });
-  btnCalibName?.addEventListener('click', () => { STATE.calibTarget = 'name'; clickStep = 0; tempStart = null; });
-  btnCalibAtk?.addEventListener('click', () => { STATE.calibTarget = 'atkGauge'; clickStep = 0; tempStart = null; });
-  btnCalibDef?.addEventListener('click', () => { STATE.calibTarget = 'defGauge'; clickStep = 0; tempStart = null; });
-  btnCalibHpBar?.addEventListener('click', () => { STATE.calibTarget = 'hpGauge'; clickStep = 0; tempStart = null; });
+  btnCalibCp?.addEventListener('click', () => setCalibTarget('cp'));
+  btnCalibHp?.addEventListener('click', () => setCalibTarget('hp'));
+  btnCalibDust?.addEventListener('click', () => setCalibTarget('dust'));
+  btnCalibName?.addEventListener('click', () => setCalibTarget('name'));
+  btnCalibAtk?.addEventListener('click', () => setCalibTarget('atkGauge'));
+  btnCalibDef?.addEventListener('click', () => setCalibTarget('defGauge'));
+  btnCalibHpBar?.addEventListener('click', () => setCalibTarget('hpGauge'));
   btnAutoStat?.addEventListener('click', () => {
-    STATE.calibTarget = 'autoStat';
-    clickStep = 0;
-    tempStart = null;
+    setCalibTarget('autoStat');
     toast('ラベル文字の少し上をクリックしてください。');
   });
   btnAutoName?.addEventListener('click', () => {
-    STATE.calibTarget = 'autoName';
-    clickStep = 0;
-    tempStart = null;
+    setCalibTarget('autoName');
     toast('HPバーの緑色部分をクリックしてください。');
   });
   btnSave?.addEventListener('click', () => { saveROI(STATE.roi); toast('ROI を localStorage に保存しました。'); });
@@ -334,6 +559,30 @@
     const isWide = !panel.classList.contains('ivocr-wide');
     applyPanelWideState(isWide);
     localStorage.setItem(PANEL_WIDE_KEY, JSON.stringify({ enabled: isWide }));
+  });
+
+  btnHelp?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleHelpPopup();
+  });
+
+  btnHelpClose?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    closeHelpPopup();
+  });
+
+  btnCopyScript?.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (!(btnCopyScript instanceof HTMLButtonElement)) return;
+    await copyScriptSourceToClipboard(btnCopyScript);
+  });
+
+  window.addEventListener('click', (event) => {
+    if (!helpPopup || !helpPopup.classList.contains('open')) return;
+    if (!(event.target instanceof Node)) return;
+    if (!panel.contains(event.target) || (!helpPopup.contains(event.target) && event.target !== btnHelp)) {
+      closeHelpPopup();
+    }
   });
 
   elSource?.addEventListener('change', () => {
@@ -541,6 +790,41 @@
   function updateWideButtonLabel(isWide) {
     if (btnWideToggle) {
       btnWideToggle.textContent = isWide ? '標準表示' : '拡大表示';
+    }
+  }
+
+  function setCalibTarget(target) {
+    STATE.calibTarget = target;
+    clickStep = 0;
+    tempStart = null;
+    updateCalibButtonState();
+  }
+
+  function updateCalibButtonState() {
+    Object.entries(calibButtonMap).forEach(([key, button]) => {
+      if (!(button instanceof HTMLElement)) return;
+      if (STATE.calibTarget === key) {
+        button.classList.add('is-active');
+      } else {
+        button.classList.remove('is-active');
+      }
+    });
+  }
+
+  function openHelpPopup() {
+    helpPopup?.classList.add('open');
+  }
+
+  function closeHelpPopup() {
+    helpPopup?.classList.remove('open');
+  }
+
+  function toggleHelpPopup() {
+    if (!helpPopup) return;
+    if (helpPopup.classList.contains('open')) {
+      closeHelpPopup();
+    } else {
+      openHelpPopup();
     }
   }
 
@@ -1690,6 +1974,55 @@
     console.log('[IV OCR]', message);
   }
 
+  async function copyScriptSourceToClipboard(button) {
+    const originalLabel = button.textContent || 'コードをコピー';
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = '取得中...';
+    try {
+      const source = await loadScriptSourceText();
+      if (!source) throw new Error('script source is empty');
+      GM_setClipboard(source, 'text');
+      button.textContent = 'コピーしました';
+      toast('ユーザースクリプトをクリップボードへコピーしました。');
+    } catch (error) {
+      console.error('[IV OCR] copyScriptSourceToClipboard error:', error);
+      button.textContent = 'コピー失敗';
+      toast('コピーに失敗しました。ネットワークや GitHub への接続状況をご確認ください。');
+    } finally {
+      window.setTimeout(() => {
+        button.textContent = originalLabel;
+        button.disabled = false;
+      }, 2200);
+    }
+  }
+
+  function loadScriptSourceText() {
+    const now = Date.now();
+    if (SCRIPT_CACHE.text && now - SCRIPT_CACHE.fetchedAt < 60 * 1000) {
+      return Promise.resolve(SCRIPT_CACHE.text);
+    }
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: SCRIPT_RAW_URL,
+        headers: { 'Cache-Control': 'no-cache' },
+        onload: (response) => {
+          if (response.status >= 200 && response.status < 300) {
+            SCRIPT_CACHE.text = response.responseText;
+            SCRIPT_CACHE.fetchedAt = Date.now();
+            resolve(response.responseText);
+          } else {
+            reject(new Error(`HTTP ${response.status}`));
+          }
+        },
+        onerror: () => reject(new Error('Network error')),
+        ontimeout: () => reject(new Error('Timeout')),
+        timeout: 15000,
+      });
+    });
+  }
+
   /**
    * パネルをドラッグ移動可能にします。
    * @param {Element} handleEl
@@ -1822,5 +2155,6 @@
   renderName(null);
   renderIv({ atk: null, def: null, hp: null });
   updateStatus('Idle');
+  updateCalibButtonState();
 
 })();
