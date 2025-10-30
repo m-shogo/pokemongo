@@ -60,7 +60,9 @@
    *   lastNameNormalized: string,
    *   activeNameValue: string | null,
    *   manualNameOverride: string | null,
-   *   manualIvOverrides: {atk: number | null, def: number | null, hp: number | null}
+   *   manualIvOverrides: {atk: number | null, def: number | null, hp: number | null},
+   *   currentScreenSignature: string | null,
+   *   manualIvScreenSignature: string | null
    * }} OCRState
    */
   const LS_KEY = 'iv-ocr-roi-v1';
@@ -140,7 +142,23 @@
     activeNameValue: null,
     manualNameOverride: null,
     manualIvOverrides: { atk: null, def: null, hp: null },
+    currentScreenSignature: null,
+    manualIvScreenSignature: null,
   };
+
+  // 手動IVの維持可否を判定するために連続一致回数を追跡
+  const SCREEN_CHANGE_CONFIRMATIONS = 2;
+  /** @type {{value: string | null, count: number}} */
+  const signatureChangeTracker = { value: null, count: 0 };
+  const EMPTY_SCREEN_SIGNATURE = JSON.stringify({
+    cp: null,
+    hp: null,
+    dust: null,
+    atk: null,
+    def: null,
+    hpIv: null,
+    name: null,
+  });
 
   const NAME_CACHE = { names: [], expiry: 0 };
   /** @type {number | null} */
@@ -684,7 +702,6 @@
   const headerEl = panel.querySelector('.ivocr-header');
   const nameInput = /** @type {HTMLInputElement | null} */ (panel.querySelector('#ivocr-name-input'));
   const elNameSuggestions = panel.querySelector('#ivocr-name-suggestions');
-  const ivFieldsContainer = panel.querySelector('.ivocr-iv-fields');
   /** @typedef {'atk' | 'def' | 'hp'} IvKind */
   const IV_KINDS = /** @type {IvKind[]} */ (['atk', 'def', 'hp']);
   /** @type {Record<IvKind, HTMLInputElement | null>} */
@@ -811,16 +828,6 @@
       }
     });
   }
-
-  document.addEventListener('pointerdown', (event) => {
-    if (!event.isTrusted) return;
-    if (!hasManualIvOverrides()) return;
-    const target = event.target;
-    if (!(target instanceof Node)) return;
-    if (ivFieldsContainer instanceof HTMLElement && ivFieldsContainer.contains(target)) return;
-    // 手動 IV の入力欄以外をクリックしたら手動モードを解除
-    clearManualIvOverrides();
-  });
 
   window.addEventListener('click', (event) => {
     if (!helpPopup || !helpPopup.classList.contains('open')) return;
@@ -999,13 +1006,9 @@
     const stable = stabilizeIvSamples(samples, STATE.stableIvBuf, STATE.lastIv);
     if (!stable) return;
     STATE.lastIv = stable;
-    for (const kind of IV_KINDS) {
-      if (STATE.manualIvOverrides[kind] !== null && stable?.[kind] === STATE.manualIvOverrides[kind]) {
-        STATE.manualIvOverrides[kind] = null;
-      }
-    }
     const effective = getEffectiveIv(stable);
     renderIv(effective);
+    handleManualIvScreenChange();
     if (STATE.autoFill) {
       fillIvBars(effective);
     }
@@ -1245,6 +1248,25 @@
   }
 
   /**
+   * 直近の画面情報をまとめて署名化し、スワイプ検出に使います。
+   * @returns {string}
+   */
+  function computeScreenSignature() {
+    const valueSnapshot = STATE.lastValues ?? { cp: null, hp: null, dust: null };
+    const ivSnapshot = STATE.lastIv ?? { atk: null, def: null, hp: null };
+    const nameKey = STATE.lastNameNormalized || STATE.lastName || null;
+    return JSON.stringify({
+      cp: typeof valueSnapshot.cp === 'number' ? valueSnapshot.cp : null,
+      hp: typeof valueSnapshot.hp === 'number' ? valueSnapshot.hp : null,
+      dust: typeof valueSnapshot.dust === 'number' ? valueSnapshot.dust : null,
+      atk: typeof ivSnapshot.atk === 'number' ? ivSnapshot.atk : null,
+      def: typeof ivSnapshot.def === 'number' ? ivSnapshot.def : null,
+      hpIv: typeof ivSnapshot.hp === 'number' ? ivSnapshot.hp : null,
+      name: nameKey,
+    });
+  }
+
+  /**
    * 手動 IV の上書き状態を記録し、必要に応じて DOM を同期
    * @param {IvKind} kind
    * @param {number | null} value
@@ -1257,10 +1279,18 @@
 
     if (normalized === null) {
       STATE.manualIvOverrides[kind] = null;
-    } else if (typeof base === 'number' && normalized === base) {
-      STATE.manualIvOverrides[kind] = null;
     } else {
       STATE.manualIvOverrides[kind] = normalized;
+    }
+
+    if (hasManualIvOverrides()) {
+      const signature = computeScreenSignature();
+      STATE.currentScreenSignature = signature;
+      STATE.manualIvScreenSignature = signature === EMPTY_SCREEN_SIGNATURE ? null : signature;
+      signatureChangeTracker.value = null;
+      signatureChangeTracker.count = 0;
+    } else {
+      STATE.manualIvScreenSignature = null;
     }
 
     const effective = getEffectiveIv();
@@ -1280,11 +1310,69 @@
     for (const kind of IV_KINDS) {
       STATE.manualIvOverrides[kind] = null;
     }
+    STATE.manualIvScreenSignature = null;
+    signatureChangeTracker.value = null;
+    signatureChangeTracker.count = 0;
     const effective = getEffectiveIv();
     renderIv(effective);
     const source = options.source ?? 'panel';
     if (source === 'panel') {
       reflectIvToDom(effective);
+    }
+  }
+
+  /**
+   * OCRが新しい画面を捉えたと判断できた場合に手動IVを解除します。
+   */
+  function handleManualIvScreenChange() {
+    const nextSignature = computeScreenSignature();
+    const hasInformativeData = nextSignature !== EMPTY_SCREEN_SIGNATURE;
+    if (STATE.currentScreenSignature !== nextSignature) {
+      STATE.currentScreenSignature = nextSignature;
+    }
+
+    if (!hasManualIvOverrides()) {
+      signatureChangeTracker.value = null;
+      signatureChangeTracker.count = 0;
+      return;
+    }
+
+    if (!hasInformativeData) {
+      return;
+    }
+
+    if (!STATE.manualIvScreenSignature) {
+      STATE.manualIvScreenSignature = nextSignature;
+      signatureChangeTracker.value = null;
+      signatureChangeTracker.count = 0;
+      return;
+    }
+
+    if (STATE.manualIvScreenSignature === EMPTY_SCREEN_SIGNATURE) {
+      STATE.manualIvScreenSignature = nextSignature;
+      signatureChangeTracker.value = null;
+      signatureChangeTracker.count = 0;
+      return;
+    }
+
+    if (STATE.manualIvScreenSignature === nextSignature) {
+      signatureChangeTracker.value = null;
+      signatureChangeTracker.count = 0;
+      return;
+    }
+
+    if (signatureChangeTracker.value === nextSignature) {
+      signatureChangeTracker.count += 1;
+    } else {
+      signatureChangeTracker.value = nextSignature;
+      signatureChangeTracker.count = 1;
+    }
+
+    if (signatureChangeTracker.count >= SCREEN_CHANGE_CONFIRMATIONS) {
+      clearManualIvOverrides({ source: 'panel' });
+      STATE.manualIvScreenSignature = null;
+      signatureChangeTracker.value = null;
+      signatureChangeTracker.count = 0;
     }
   }
 
