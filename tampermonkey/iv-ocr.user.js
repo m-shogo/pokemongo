@@ -12,7 +12,6 @@
 // @connect      pokemongo-get.com
 // @require      https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js
 // ==/UserScript==
-
 (function () {
   'use strict';
 
@@ -56,14 +55,14 @@
    *   lastAutoFillAt: number | null,
    *   ocrStats: {attempts: number, successes: number},
    *   theme: 'default' | 'contrast',
-  *   onboardingSeen: boolean,
-  *   nameSuggestions: NameSuggestion[],
-  *   lastNameNormalized: string,
-  *   activeNameValue: string | null,
-  *   manualNameOverride: string | null
+   *   onboardingSeen: boolean,
+   *   nameSuggestions: NameSuggestion[],
+   *   lastNameNormalized: string,
+   *   activeNameValue: string | null,
+   *   manualNameOverride: string | null,
+   *   manualIvOverrides: {atk: number | null, def: number | null, hp: number | null}
    * }} OCRState
    */
-
   const LS_KEY = 'iv-ocr-roi-v1';
   const LS_AUTO_SELECT_KEY = 'iv-ocr-auto-select-v1';
   const SCRIPT_RAW_URL = 'https://raw.githubusercontent.com/m-shogo/pokemongo/main/tampermonkey/iv-ocr.user.js';
@@ -140,6 +139,7 @@
     lastNameNormalized: '',
     activeNameValue: null,
     manualNameOverride: null,
+    manualIvOverrides: { atk: null, def: null, hp: null },
   };
 
   const NAME_CACHE = { names: [], expiry: 0 };
@@ -202,6 +202,15 @@
     .ivocr-name-suggestions button[data-source="prefix"] { border-style:dashed; }
     .ivocr-name-suggestions button[data-source="last"] { border-color:#555; color:#ccc; }
     .ivocr-name-suggestions button.is-active { border-color:#f06292; color:#f06292; }
+    .ivocr-name-input { flex:1 1 100%; width:100%; height:36px; padding:6px 8px; border-radius:6px; border:1px solid #444; background:#1b1b1b; color:#f5f5f5; font-size:12px; line-height:1.4; }
+    .ivocr-name-input:focus { outline:none; border-color:#64b5f6; box-shadow:0 0 0 1px rgba(100,181,246,0.35); }
+    .ivocr-name-input.is-manual { border-color:#f06292; box-shadow:0 0 0 1px rgba(240,98,146,0.4); }
+    .ivocr-name-input::placeholder { color:#888; }
+    .ivocr-iv-fields { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .ivocr-iv-field { display:flex; align-items:center; gap:4px; font-size:12px; color:#ccc; }
+    .ivocr-iv-field input { width:48px; padding:3px 6px; border-radius:4px; border:1px solid #444; background:#1b1b1b; color:#f5f5f5; }
+    .ivocr-iv-field input:focus { outline:none; border-color:#64b5f6; box-shadow:0 0 0 1px rgba(100,181,246,0.35); }
+    .ivocr-iv-field input.is-manual { border-color:#f06292; box-shadow:0 0 0 1px rgba(240,98,146,0.4); }
     .ivocr-btn { padding: 6px 10px; font-size: 12px; border: 1px solid #444; background:#1f1f1f; color:#fff; border-radius:6px; cursor:pointer; }
     .ivocr-btn:hover { background:#2a2a2a; }
     .ivocr-btn[data-calib] {
@@ -375,6 +384,11 @@
     .ivocr-theme-contrast .ivocr-name-suggestions button[data-source="prefix"] { border-style:dashed; }
     .ivocr-theme-contrast .ivocr-name-suggestions button[data-source="last"] { border-color:#999; color:#555; }
     .ivocr-theme-contrast .ivocr-name-suggestions button.is-active { border-color:#d81b60; color:#d81b60; }
+    .ivocr-theme-contrast .ivocr-name-input { background:#fff; color:#111; border-color:#bbb; }
+    .ivocr-theme-contrast .ivocr-name-input.is-manual { border-color:#d81b60; box-shadow:0 0 0 1px rgba(216,27,96,0.35); }
+    .ivocr-theme-contrast .ivocr-iv-field { color:#333; }
+    .ivocr-theme-contrast .ivocr-iv-field input { background:#fff; color:#111; border-color:#bbb; }
+    .ivocr-theme-contrast .ivocr-iv-field input.is-manual { border-color:#d81b60; box-shadow:0 0 0 1px rgba(216,27,96,0.35); }
     .ivocr-theme-contrast .ivocr-fieldset { border-color:#c7c7c7; }
     .ivocr-theme-contrast .ivocr-legend { color:#333; }
     .ivocr-theme-contrast .ivocr-legend-badge { background:#f9f9f9; border-color:#d0d0d0; color:#222; }
@@ -567,9 +581,9 @@
         <label>状態</label>
         <span id="ivocr-status" class="ivocr-badge">Idle</span>
       </div>
-      <div class="ivocr-row">
+      <div class="ivocr-row ivocr-name-row">
         <label>名前</label>
-        <span id="ivocr-name">-</span>
+        <input id="ivocr-name-input" class="ivocr-name-input" type="text" placeholder="認識中…" />
       </div>
       <div class="ivocr-row">
         <label>候補</label>
@@ -581,11 +595,19 @@
         <span>HP: <span id="ivocr-val-hp">-</span></span>
         <span>すな: <span id="ivocr-val-dust">-</span></span>
       </div>
-      <div class="ivocr-row">
+      <div class="ivocr-row ivocr-iv-row">
         <label>IV推定</label>
-        <span>攻: <span id="ivocr-iv-atk">-</span></span>
-        <span>防: <span id="ivocr-iv-def">-</span></span>
-        <span>HP: <span id="ivocr-iv-hp">-</span></span>
+        <div class="ivocr-iv-fields">
+          <label class="ivocr-iv-field">攻:
+            <input type="number" id="ivocr-iv-atk-input" min="0" max="15" step="1" inputmode="numeric" placeholder="--" />
+          </label>
+          <label class="ivocr-iv-field">防:
+            <input type="number" id="ivocr-iv-def-input" min="0" max="15" step="1" inputmode="numeric" placeholder="--" />
+          </label>
+          <label class="ivocr-iv-field">HP:
+            <input type="number" id="ivocr-iv-hp-input" min="0" max="15" step="1" inputmode="numeric" placeholder="--" />
+          </label>
+        </div>
       </div>
       <div class="ivocr-row ivocr-toggle">
         <input type="checkbox" id="ivocr-autofill" />
@@ -660,11 +682,17 @@
   const btnCopyScript = panel.querySelector('#ivocr-copy-script');
   const btnThemeToggle = panel.querySelector('#ivocr-theme-toggle');
   const headerEl = panel.querySelector('.ivocr-header');
-  const elName = panel.querySelector('#ivocr-name');
+  const nameInput = /** @type {HTMLInputElement | null} */ (panel.querySelector('#ivocr-name-input'));
   const elNameSuggestions = panel.querySelector('#ivocr-name-suggestions');
-  const elIvAtk = panel.querySelector('#ivocr-iv-atk');
-  const elIvDef = panel.querySelector('#ivocr-iv-def');
-  const elIvHp = panel.querySelector('#ivocr-iv-hp');
+  const ivFieldsContainer = panel.querySelector('.ivocr-iv-fields');
+  /** @typedef {'atk' | 'def' | 'hp'} IvKind */
+  const IV_KINDS = /** @type {IvKind[]} */ (['atk', 'def', 'hp']);
+  /** @type {Record<IvKind, HTMLInputElement | null>} */
+  const ivInputs = {
+    atk: panel.querySelector('#ivocr-iv-atk-input'),
+    def: panel.querySelector('#ivocr-iv-def-input'),
+    hp: panel.querySelector('#ivocr-iv-hp-input'),
+  };
   const leagueContainers = {
     super: panel.querySelector('#ivocr-league-super'),
     hyper: panel.querySelector('#ivocr-league-hyper'),
@@ -771,12 +799,50 @@
     setTheme(nextTheme);
   });
 
+  for (const kind of IV_KINDS) {
+    const input = ivInputs[kind];
+    if (!input) continue;
+    input.addEventListener('input', () => handleManualIvInput(kind, input));
+    input.addEventListener('change', () => handleManualIvInput(kind, input));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        input.blur();
+      }
+    });
+  }
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!event.isTrusted) return;
+    if (!hasManualIvOverrides()) return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (ivFieldsContainer instanceof HTMLElement && ivFieldsContainer.contains(target)) return;
+    // 手動 IV の入力欄以外をクリックしたら手動モードを解除
+    clearManualIvOverrides();
+  });
+
   window.addEventListener('click', (event) => {
     if (!helpPopup || !helpPopup.classList.contains('open')) return;
     if (!(event.target instanceof Node)) return;
     if (!panel.contains(event.target) || (!helpPopup.contains(event.target) && event.target !== btnHelp)) {
       closeHelpPopup();
     }
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.isTrusted) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest('#wiki_atk a[data-val], #wiki_def a[data-val], #wiki_hp a[data-val]');
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    const span = anchor.closest('span[id^="wiki_"]');
+    if (!span) return;
+    const kindId = span.id.replace('wiki_', '');
+    if (!isIvKind(kindId)) return;
+    const value = Number(anchor.dataset.val);
+    if (!Number.isFinite(value)) return;
+    applyManualIvOverride(kindId, value, { source: 'dom' });
   });
 
   elSource?.addEventListener('change', () => {
@@ -799,6 +865,25 @@
     });
   }
 
+  if (nameInput) {
+    if (STATE.manualNameOverride) {
+      nameInput.value = STATE.manualNameOverride;
+      nameInput.classList.add('is-manual');
+    }
+    nameInput.addEventListener('input', () => {
+      applyManualNameOverride(nameInput.value, { fill: false });
+    });
+    nameInput.addEventListener('change', () => {
+      applyManualNameOverride(nameInput.value, { fill: true });
+    });
+    nameInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        nameInput.blur();
+      }
+    });
+  }
+
   if (elNameSuggestions instanceof HTMLElement) {
     elNameSuggestions.addEventListener('click', (event) => {
       // 候補ボタン経由で検索欄へ即座に転記する
@@ -806,15 +891,7 @@
       if (!(target instanceof HTMLButtonElement)) return;
       const { value } = target.dataset;
       if (!value) return;
-      fillPokemonName(value);
-      const source = target.dataset.source;
-      STATE.manualNameOverride = value;
-      STATE.lastName = value;
-      if (STATE.nameSuggestions.length) {
-        const normalized = STATE.lastNameNormalized || '';
-        const matchedForRender = source === 'prefix' ? STATE.lastName : value;
-        renderName({ matched: matchedForRender ?? null, normalized, suggestions: STATE.nameSuggestions }, value);
-      }
+      applyManualNameOverride(value, { fill: true });
     });
   }
 
@@ -922,9 +999,15 @@
     const stable = stabilizeIvSamples(samples, STATE.stableIvBuf, STATE.lastIv);
     if (!stable) return;
     STATE.lastIv = stable;
-    renderIv(stable);
+    for (const kind of IV_KINDS) {
+      if (STATE.manualIvOverrides[kind] !== null && stable?.[kind] === STATE.manualIvOverrides[kind]) {
+        STATE.manualIvOverrides[kind] = null;
+      }
+    }
+    const effective = getEffectiveIv(stable);
+    renderIv(effective);
     if (STATE.autoFill) {
-      fillIvBars(stable);
+      fillIvBars(effective);
     }
   }, 600);
 
@@ -934,18 +1017,14 @@
     if (!result) return;
     const manual = STATE.manualNameOverride;
     if (manual) {
-      const stillCandidate = result.suggestions.some((item) => item.value === manual);
-      if (stillCandidate) {
-        renderName(result, manual);
-        if (STATE.autoFill) {
-          fillPokemonName(manual);
-        }
-        if (STATE.lastName !== manual) {
-          STATE.lastName = manual;
-        }
-        return;
+      renderName(result, manual);
+      if (STATE.autoFill) {
+        fillPokemonName(manual);
       }
-      STATE.manualNameOverride = null;
+      if (STATE.lastName !== manual) {
+        STATE.lastName = manual;
+      }
+      return;
     }
 
     renderName(result);
@@ -991,32 +1070,55 @@
     STATE.nameSuggestions = suggestions;
     STATE.lastNameNormalized = normalized;
 
+    // 最上位候補はテキスト入力に表示し、それ以外の上位4件をボタンとして利用する
+    const [primarySuggestion, ...rawSecondary] = suggestions;
+    const secondarySuggestions = rawSecondary
+      .filter((item) => !primarySuggestion || item.value !== primarySuggestion.value)
+      .slice(0, 4);
+
     if (typeof activeValue === 'string') {
       STATE.manualNameOverride = activeValue;
+    } else if (activeValue === null) {
+      STATE.manualNameOverride = null;
     }
 
     let manualValue = typeof activeValue === 'string' ? activeValue : STATE.manualNameOverride;
-    if (manualValue && !suggestions.some((item) => item.value === manualValue)) {
-      manualValue = null;
-      if (typeof activeValue !== 'string') {
-        STATE.manualNameOverride = null;
-      }
+    if (typeof manualValue === 'string') {
+      const trimmed = manualValue.trim();
+      manualValue = trimmed.length ? trimmed : null;
+      STATE.manualNameOverride = manualValue;
     }
 
-    const displayText = manualValue ?? matched ?? (normalized || '-');
+    const primaryValue = primarySuggestion?.value ?? matched ?? normalized ?? '';
+    const displayText = manualValue ?? primaryValue ?? '';
 
-    STATE.activeNameValue = manualValue ?? matched ?? null;
+    if (manualValue) {
+      STATE.lastName = manualValue;
+    } else if (matched) {
+      STATE.lastName = matched;
+    } else if (primarySuggestion?.value) {
+      STATE.lastName = primarySuggestion.value;
+    }
 
-    if (elName) {
-      elName.textContent = displayText || '-';
+    STATE.activeNameValue = manualValue ?? matched ?? primarySuggestion?.value ?? null;
+
+    if (nameInput instanceof HTMLInputElement) {
+      const activeEl = document.activeElement;
+      if (activeEl !== nameInput || typeof activeValue === 'string') {
+        if (nameInput.value !== displayText) {
+          nameInput.value = displayText;
+        }
+      }
+      nameInput.classList.toggle('is-manual', Boolean(manualValue));
+      nameInput.placeholder = normalized || '認識中…';
     }
 
     if (!(elNameSuggestions instanceof HTMLElement)) return;
     elNameSuggestions.replaceChildren();
-    if (!suggestions.length) return;
+    if (!secondarySuggestions.length) return;
 
     const highlight = STATE.activeNameValue;
-    for (const suggestion of suggestions) {
+    for (const suggestion of secondarySuggestions) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = suggestion.label;
@@ -1030,9 +1132,169 @@
   }
 
   function renderIv(iv) {
-    if (elIvAtk) elIvAtk.textContent = iv.atk ?? '-';
-    if (elIvDef) elIvDef.textContent = iv.def ?? '-';
-    if (elIvHp) elIvHp.textContent = iv.hp ?? '-';
+    const activeEl = document.activeElement;
+    for (const kind of IV_KINDS) {
+      const input = ivInputs[kind];
+      if (!input) continue;
+      const isManual = STATE.manualIvOverrides[kind] !== null;
+      if (activeEl !== input || isManual) {
+        const nextValue = iv[kind];
+        input.value = nextValue == null ? '' : String(nextValue);
+      }
+      input.classList.toggle('is-manual', isManual);
+      const base = STATE.lastIv?.[kind];
+      input.title = isManual && typeof base === 'number'
+        ? `手動設定中 / OCR推定: ${base}`
+        : 'OCR推定値 (0〜15)';
+    }
+  }
+
+  /**
+   * テキストエリアや候補選択からの名前変更を内部状態と9dbへ反映
+   * @param {string} value
+   * @param {{fill?: boolean}} [options]
+   */
+  function applyManualNameOverride(value, options = {}) {
+    const fill = options.fill ?? true;
+    const trimmed = value.trim();
+    const manual = trimmed.length ? trimmed : null;
+
+    STATE.manualNameOverride = manual;
+    STATE.activeNameValue = manual ?? STATE.activeNameValue ?? null;
+
+    if (manual) {
+      STATE.lastName = manual;
+      if (fill) {
+        fillPokemonName(manual);
+      }
+    }
+
+    renderName({
+      matched: STATE.lastName ?? null,
+      normalized: STATE.lastNameNormalized,
+      suggestions: STATE.nameSuggestions,
+    }, manual);
+  }
+
+  /**
+   * 手動入力用に値を 0〜15 の整数へ丸め込みます。
+   * @param {number} value
+   * @returns {number | null}
+   */
+  function clampIvValue(value) {
+    if (!Number.isFinite(value)) return null;
+    const rounded = Math.round(value);
+    return clamp(rounded, 0, 15);
+  }
+
+  /**
+   * OCR結果と手動入力を統合した IV を返します。
+   * @param {{atk:number|null,def:number|null,hp:number|null} | null} [base]
+   * @returns {{atk:number|null,def:number|null,hp:number|null}}
+   */
+  function getEffectiveIv(base) {
+    const fallback = base ?? STATE.lastIv ?? { atk: null, def: null, hp: null };
+    return {
+      atk: STATE.manualIvOverrides.atk ?? fallback.atk ?? null,
+      def: STATE.manualIvOverrides.def ?? fallback.def ?? null,
+      hp: STATE.manualIvOverrides.hp ?? fallback.hp ?? null,
+    };
+  }
+
+  /**
+   * パネル側で IV を手動入力した際の処理
+   * @param {IvKind} kind
+   * @param {HTMLInputElement} input
+   */
+  function handleManualIvInput(kind, input) {
+    const raw = input.value.trim();
+    if (!raw) {
+      applyManualIvOverride(kind, null);
+      return;
+    }
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      toast('IV は 0〜15 の半角数字で入力してください。');
+      input.value = '';
+      applyManualIvOverride(kind, null);
+      return;
+    }
+
+    const clamped = clampIvValue(parsed);
+    if (clamped === null) {
+      toast('IV は 0〜15 の範囲で指定してください。');
+      input.value = '';
+      applyManualIvOverride(kind, null);
+      return;
+    }
+
+    if (clamped !== parsed) {
+      toast('IV を 0〜15 の範囲に丸めました。');
+    }
+    input.value = String(clamped);
+    applyManualIvOverride(kind, clamped);
+  }
+
+  /**
+   * 手動 IV が一つでも有効かどうかを返します。
+   * @returns {boolean}
+   */
+  function hasManualIvOverrides() {
+    return IV_KINDS.some((kind) => STATE.manualIvOverrides[kind] !== null);
+  }
+
+  /**
+   * 手動 IV の上書き状態を記録し、必要に応じて DOM を同期
+   * @param {IvKind} kind
+   * @param {number | null} value
+   * @param {{source?: 'panel' | 'dom'}} [options]
+   */
+  function applyManualIvOverride(kind, value, options = {}) {
+    const source = options.source ?? 'panel';
+    const normalized = value === null ? null : clampIvValue(value);
+    const base = STATE.lastIv?.[kind] ?? null;
+
+    if (normalized === null) {
+      STATE.manualIvOverrides[kind] = null;
+    } else if (typeof base === 'number' && normalized === base) {
+      STATE.manualIvOverrides[kind] = null;
+    } else {
+      STATE.manualIvOverrides[kind] = normalized;
+    }
+
+    const effective = getEffectiveIv();
+    renderIv(effective);
+
+    if (source === 'panel') {
+      reflectIvToDom(effective);
+    }
+  }
+
+  /**
+   * 手動 IV の上書きをまとめて解除し、OCR 読み取りに戻します。
+   * @param {{source?: 'panel' | 'dom'}} [options]
+   */
+  function clearManualIvOverrides(options = {}) {
+    if (!hasManualIvOverrides()) return;
+    for (const kind of IV_KINDS) {
+      STATE.manualIvOverrides[kind] = null;
+    }
+    const effective = getEffectiveIv();
+    renderIv(effective);
+    const source = options.source ?? 'panel';
+    if (source === 'panel') {
+      reflectIvToDom(effective);
+    }
+  }
+
+  /**
+   * 文字列が IV 種別か判定します。
+   * @param {string} value
+   * @returns {value is IvKind}
+   */
+  function isIvKind(value) {
+    return value === 'atk' || value === 'def' || value === 'hp';
   }
 
   // ---------------------
@@ -2267,7 +2529,7 @@
     return {
       matched: matches[0] ?? null,
       normalized: katakana,
-      suggestions: suggestions.slice(0, 6),
+      suggestions: suggestions.slice(0, 5),
     };
   }
 
@@ -2385,7 +2647,8 @@
       const cell = findTopVisibleNameCandidate();
       if (cell) {
         const rect = cell.getBoundingClientRect();
-        const opts = { view: window, bubbles: true, cancelable: true, clientX: rect.left + 4, clientY: rect.top + 4 };
+        const view = resolveViewFromNode(cell) || window; // Tampermonkey の sandbox window ではなく実ページ側を使う
+        const opts = { view, bubbles: true, cancelable: true, clientX: rect.left + 4, clientY: rect.top + 4 };
         cell.dispatchEvent(new MouseEvent('mousedown', opts));
         cell.dispatchEvent(new MouseEvent('mouseup', opts));
         cell.dispatchEvent(new MouseEvent('click', opts));
@@ -2421,6 +2684,21 @@
     return null;
   }
 
+  /**
+   * Tampermonkey サンドボックスからでも実ページの window を取得する
+   * @param {Node} node
+   * @returns {Window | null}
+   */
+  const resolveViewFromNode = (node) => {
+    if (!(node instanceof Node)) {
+      return typeof unsafeWindow !== 'undefined' ? unsafeWindow : null;
+    }
+    const doc = node.ownerDocument;
+    if (doc && doc.defaultView) return doc.defaultView;
+    if (typeof unsafeWindow !== 'undefined') return unsafeWindow;
+    return null;
+  };
+
   // DOM が置き換わっても IV 表示を復元するためのヘルパー
   const reflectIvToDom = createIvDomReflector();
 
@@ -2430,38 +2708,56 @@
     /** @type {MutationObserver | null} */
     let observer = null;
 
-    const applySingle = (kind, value) => {
+    const simulateClick = (anchor) => {
+      const rect = anchor.getBoundingClientRect();
+      const view = resolveViewFromNode(anchor) || window; // 実ページ側の window を使わないと MouseEvent が失敗する
+      const opts = {
+        view,
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      };
+      anchor.dispatchEvent(new MouseEvent('mousedown', opts));
+      anchor.dispatchEvent(new MouseEvent('mouseup', opts));
+      anchor.dispatchEvent(new MouseEvent('click', opts));
+    };
+
+    const syncKind = (kind, rawValue) => {
       const span = document.getElementById(`wiki_${kind}`);
-      if (span) {
-        const anchors = Array.from(span.querySelectorAll('a[data-val]'));
-        anchors.forEach((anchor) => {
-          anchor.classList.remove('iv_active', 'bar_maxr');
-        });
-        if (typeof value === 'number') {
-          anchors.forEach((anchor) => {
-            const val = Number(anchor.dataset.val || '0');
-            if (val <= value) {
-              anchor.classList.add('iv_active');
-            }
-            if (val === value) {
-              anchor.classList.add('bar_maxr');
-            }
-          });
+      const hidden = document.querySelector(`input[name="${kind}"][data-id="${kind}"]`);
+      if (!(span instanceof HTMLElement) || !(hidden instanceof HTMLInputElement)) return;
+
+      const desired = typeof rawValue === 'number' ? clampIvValue(rawValue) : null;
+      if (desired === null) return;
+
+      const current = Number(hidden.value || '0') || 0;
+
+      if (desired === 0) {
+        if (current === 0) return;
+        const activeAnchor = span.querySelector('a.bar_maxr');
+        if (activeAnchor instanceof HTMLAnchorElement) {
+          simulateClick(activeAnchor);
+        } else {
+          hidden.value = '0';
+          hidden.dispatchEvent(new Event('input', { bubbles: true }));
+          hidden.dispatchEvent(new Event('change', { bubbles: true }));
         }
+        return;
       }
 
-      const hidden = document.querySelector(`input[name="${kind}"][data-id="${kind}"]`);
-      if (hidden && typeof value === 'number' && hidden.value !== String(value)) {
-        hidden.value = String(value);
-        hidden.dispatchEvent(new Event('input', { bubbles: true }));
-        hidden.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      if (current === desired) return;
+
+      const anchor = span.querySelector(`a[data-val="${desired}"]`);
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+
+      simulateClick(anchor);
     };
 
     const applyAll = () => {
-      applySingle('atk', lastApplied.atk);
-      applySingle('def', lastApplied.def);
-      applySingle('hp', lastApplied.hp);
+      syncKind('atk', lastApplied.atk);
+      syncKind('def', lastApplied.def);
+      syncKind('hp', lastApplied.hp);
     };
 
     const ensureObserver = () => {
@@ -2474,9 +2770,9 @@
 
     return (values) => {
       lastApplied = {
-        atk: typeof values.atk === 'number' ? values.atk : lastApplied.atk,
-        def: typeof values.def === 'number' ? values.def : lastApplied.def,
-        hp: typeof values.hp === 'number' ? values.hp : lastApplied.hp,
+        atk: typeof values.atk === 'number' ? values.atk : null,
+        def: typeof values.def === 'number' ? values.def : null,
+        hp: typeof values.hp === 'number' ? values.hp : null,
       };
       ensureObserver();
       applyAll();
@@ -2749,7 +3045,7 @@
 
   renderValues({ cp: null, hp: null, dust: null });
   renderName({ matched: null, normalized: '', suggestions: [] });
-  renderIv({ atk: null, def: null, hp: null });
+  renderIv(getEffectiveIv({ atk: null, def: null, hp: null }));
   updateStatus('Idle');
   updateCalibButtonState();
 
