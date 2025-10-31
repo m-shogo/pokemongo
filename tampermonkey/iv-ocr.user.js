@@ -571,35 +571,42 @@
         <canvas class="ivocr-preview" id="ivocr-canvas" width="320" height="640"></canvas>
       </div>
       <div class="ivocr-legend-wrap" id="ivocr-legend"></div>
-      <div class="ivocr-row">
-        <span class="ivocr-small">プレビュー上で 2クリック（左上→右下）で枠を作成</span>
+      <div class="ivocr-accordion ivocr-calib-accordion">
+        <div>
+          <button class="ivocr-accordion__btn" data-accordion-toggle="calibration">枠校正と自動推定<span>開く</span></button>
+          <div class="ivocr-accordion__panel" data-accordion-panel="calibration">
+            <div class="ivocr-row">
+              <span class="ivocr-small">プレビュー上で 2クリック（左上→右下）で枠を作成</span>
+            </div>
+            <fieldset class="ivocr-fieldset" data-group="calibration">
+              <legend class="ivocr-legend">枠校正と自動推定</legend>
+              <div class="ivocr-row">
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-cp" data-calib="cp" data-tip="CPの数値を囲むよう左上→右下でクリック">校正: CP</button>
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-hp" data-calib="hp" data-tip="HPの数値部分を枠で指定">校正: HP</button>
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-dust" data-calib="dust" data-tip="ほしのすな表示を枠で指定">校正: すな</button>
+              </div>
+              <div class="ivocr-row">
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-name" data-calib="name" data-tip="ポケモン名の表示欄を囲みます">校正: 名前</button>
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-atk" data-calib="atkGauge" data-tip="こうげきバー全体を囲みます">校正: こうげきバー</button>
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-def" data-calib="defGauge" data-tip="ぼうぎょバー全体を囲みます">校正: ぼうぎょバー</button>
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-hpbar" data-calib="hpGauge" data-tip="HPバー全体を囲みます">校正: HPバー</button>
+              </div>
+              <div class="ivocr-row">
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-auto-stat" data-calib="autoStat" data-tip="ラベル文字の付近をクリックするとバーを推定">自動: ラベル→バー</button>
+                <span class="ivocr-small">ラベル付近をクリックすると対応バーを自動検出</span>
+              </div>
+              <div class="ivocr-row">
+                <button class="ivocr-btn ivocr-tooltip" id="ivocr-auto-name" data-calib="autoName" data-tip="HPバー上の緑部分をクリックすると名前枠を推定">自動: HPバー→名前</button>
+                <span class="ivocr-small">HPゲージの緑部分をクリックで名前枠を自動設定</span>
+              </div>
+              <div class="ivocr-row">
+                <button class="ivocr-btn" id="ivocr-save">保存</button>
+                <button class="ivocr-btn" id="ivocr-clear">枠クリア</button>
+              </div>
+            </fieldset>
+          </div>
+        </div>
       </div>
-      <fieldset class="ivocr-fieldset" data-group="calibration">
-        <legend class="ivocr-legend">枠校正と自動推定</legend>
-        <div class="ivocr-row">
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-cp" data-calib="cp" data-tip="CPの数値を囲むよう左上→右下でクリック">校正: CP</button>
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-hp" data-calib="hp" data-tip="HPの数値部分を枠で指定">校正: HP</button>
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-dust" data-calib="dust" data-tip="ほしのすな表示を枠で指定">校正: すな</button>
-        </div>
-        <div class="ivocr-row">
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-name" data-calib="name" data-tip="ポケモン名の表示欄を囲みます">校正: 名前</button>
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-atk" data-calib="atkGauge" data-tip="こうげきバー全体を囲みます">校正: こうげきバー</button>
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-def" data-calib="defGauge" data-tip="ぼうぎょバー全体を囲みます">校正: ぼうぎょバー</button>
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-calib-hpbar" data-calib="hpGauge" data-tip="HPバー全体を囲みます">校正: HPバー</button>
-        </div>
-        <div class="ivocr-row">
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-auto-stat" data-calib="autoStat" data-tip="ラベル文字の付近をクリックするとバーを推定">自動: ラベル→バー</button>
-          <span class="ivocr-small">ラベル付近をクリックすると対応バーを自動検出</span>
-        </div>
-        <div class="ivocr-row">
-          <button class="ivocr-btn ivocr-tooltip" id="ivocr-auto-name" data-calib="autoName" data-tip="HPバー上の緑部分をクリックすると名前枠を推定">自動: HPバー→名前</button>
-          <span class="ivocr-small">HPゲージの緑部分をクリックで名前枠を自動設定</span>
-        </div>
-        <div class="ivocr-row">
-          <button class="ivocr-btn" id="ivocr-save">保存</button>
-          <button class="ivocr-btn" id="ivocr-clear">枠クリア</button>
-        </div>
-      </fieldset>
       <div class="ivocr-row">
         <label>状態</label>
         <span id="ivocr-status" class="ivocr-badge">Idle</span>
