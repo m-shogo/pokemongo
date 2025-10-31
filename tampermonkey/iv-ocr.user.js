@@ -47,7 +47,8 @@
    *   calibTarget: 'none' | 'cp' | 'hp' | 'dust' | 'name' | 'atkGauge' | 'defGauge' | 'hpGauge' | 'autoStat' | 'autoName',
    *   loopId: number | null,
    *   lastValues: {cp: number | null, hp: number | null, dust: number | null},
-   *   lastName: string | null,
+  *   lastName: string | null,
+  *   lastNameMatched: string | null,
    *   lastIv: {atk: number | null, def: number | null, hp: number | null},
    *   stableBuf: {cp: number[], hp: number[], dust: number[]},
    *   stableIvBuf: {atk: GaugeSample[], def: GaugeSample[], hp: GaugeSample[]},
@@ -62,7 +63,8 @@
    *   manualNameOverride: string | null,
    *   manualIvOverrides: {atk: number | null, def: number | null, hp: number | null},
    *   currentScreenSignature: string | null,
-   *   manualIvScreenSignature: string | null
+  *   manualIvScreenSignature: string | null,
+  *   manualNameScreenSignature: string | null
    * }} OCRState
    */
   const LS_KEY = 'iv-ocr-roi-v1';
@@ -129,6 +131,7 @@
     loopId: null,
     lastValues: { cp: null, hp: null, dust: null },
     lastName: null,
+    lastNameMatched: null,
     lastIv: { atk: null, def: null, hp: null },
     stableBuf: { cp: [], hp: [], dust: [] },
     stableIvBuf: { atk: [], def: [], hp: [] },
@@ -144,12 +147,14 @@
     manualIvOverrides: { atk: null, def: null, hp: null },
     currentScreenSignature: null,
     manualIvScreenSignature: null,
+    manualNameScreenSignature: null,
   };
 
   // 手動IVの維持可否を判定するために連続一致回数を追跡
   const SCREEN_CHANGE_CONFIRMATIONS = 2;
   /** @type {{value: string | null, count: number}} */
   const signatureChangeTracker = { value: null, count: 0 };
+  const nameSignatureChangeTracker = { value: null, count: 0 }; // 名前入力の保持判断用
   const EMPTY_SCREEN_SIGNATURE = JSON.stringify({
     cp: null,
     hp: null,
@@ -878,10 +883,10 @@
       nameInput.classList.add('is-manual');
     }
     nameInput.addEventListener('input', () => {
-      applyManualNameOverride(nameInput.value, { fill: false });
+      applyManualNameOverride(nameInput.value, { fill: false, syncDom: true });
     });
     nameInput.addEventListener('change', () => {
-      applyManualNameOverride(nameInput.value, { fill: true });
+      applyManualNameOverride(nameInput.value, { fill: true, syncDom: true });
     });
     nameInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
@@ -1017,26 +1022,29 @@
   const throttledName = throttle(async () => {
     if (!STATE.canvasEl) return;
     const result = await readPokemonName(STATE.canvasEl, STATE.roi, STATE.lastName);
-    if (!result) return;
+    if (!result) {
+      handleManualNameScreenChange();
+      return;
+    }
     const manual = STATE.manualNameOverride;
     if (manual) {
       renderName(result, manual);
-      if (STATE.autoFill) {
-        fillPokemonName(manual);
-      }
       if (STATE.lastName !== manual) {
         STATE.lastName = manual;
       }
+      handleManualNameScreenChange();
       return;
     }
 
-    renderName(result);
     const matched = result.matched;
-    if (!matched || matched === STATE.lastName) return;
-    STATE.lastName = matched;
-    if (STATE.autoFill) {
-      fillPokemonName(matched);
+    const sameAsBefore = matched ? matched === STATE.lastName : false;
+    renderName(result);
+    if (!matched || sameAsBefore) {
+      handleManualNameScreenChange();
+      return;
     }
+    STATE.lastName = matched;
+    handleManualNameScreenChange();
   }, 1500);
 
   async function loop() {
@@ -1073,6 +1081,13 @@
     STATE.nameSuggestions = suggestions;
     STATE.lastNameNormalized = normalized;
 
+    if (matched || suggestions[0]?.value) {
+      const canonical = matched ?? suggestions[0]?.value ?? null;
+      if (canonical) {
+        STATE.lastNameMatched = canonical;
+      }
+    }
+
     // 最上位候補はテキスト入力に表示し、それ以外の上位4件をボタンとして利用する
     const [primarySuggestion, ...rawSecondary] = suggestions;
     const secondarySuggestions = rawSecondary
@@ -1097,10 +1112,11 @@
 
     if (manualValue) {
       STATE.lastName = manualValue;
-    } else if (matched) {
-      STATE.lastName = matched;
-    } else if (primarySuggestion?.value) {
-      STATE.lastName = primarySuggestion.value;
+    } else {
+      const canonical = primarySuggestion?.value ?? matched ?? null;
+      if (canonical) {
+        STATE.lastName = canonical;
+      }
     }
 
     STATE.activeNameValue = manualValue ?? matched ?? primarySuggestion?.value ?? null;
@@ -1114,6 +1130,18 @@
       }
       nameInput.classList.toggle('is-manual', Boolean(manualValue));
       nameInput.placeholder = normalized || '認識中…';
+    }
+
+    if (!manualValue) {
+      const shouldFocus = STATE.autoFill;
+      const shouldTriggerSelection = STATE.autoFill && STATE.autoSelectName;
+      const shouldDispatchChange = STATE.autoFill;
+      // 第一候補を9db側の検索欄にも反映（手動入力中はapplyManualNameOverrideで同期）
+      fillPokemonName(displayText, {
+        focus: shouldFocus,
+        triggerSelection: shouldTriggerSelection,
+        dispatchChange: shouldDispatchChange,
+      });
     }
 
     if (!(elNameSuggestions instanceof HTMLElement)) return;
@@ -1155,10 +1183,11 @@
   /**
    * テキストエリアや候補選択からの名前変更を内部状態と9dbへ反映
    * @param {string} value
-   * @param {{fill?: boolean}} [options]
+  * @param {{fill?: boolean, syncDom?: boolean}} [options]
    */
   function applyManualNameOverride(value, options = {}) {
     const fill = options.fill ?? true;
+    const syncDom = options.syncDom ?? false;
     const trimmed = value.trim();
     const manual = trimmed.length ? trimmed : null;
 
@@ -1168,8 +1197,26 @@
     if (manual) {
       STATE.lastName = manual;
       if (fill) {
-        fillPokemonName(manual);
+        fillPokemonName(manual, {
+          focus: false,
+          triggerSelection: STATE.autoFill && STATE.autoSelectName,
+          dispatchChange: STATE.autoFill,
+        });
+      } else if (syncDom) {
+        fillPokemonName(manual, {
+          focus: false,
+          triggerSelection: false,
+          dispatchChange: false,
+        });
       }
+      const signature = computeScreenSignature();
+      STATE.manualNameScreenSignature = signature === EMPTY_SCREEN_SIGNATURE ? null : signature;
+      nameSignatureChangeTracker.value = null;
+      nameSignatureChangeTracker.count = 0;
+    } else {
+      STATE.manualNameScreenSignature = null;
+      nameSignatureChangeTracker.value = null;
+      nameSignatureChangeTracker.count = 0;
     }
 
     renderName({
@@ -1177,6 +1224,63 @@
       normalized: STATE.lastNameNormalized,
       suggestions: STATE.nameSuggestions,
     }, manual);
+  }
+
+  /**
+   * 手動入力した名前をリセットし、最新のOCR結果へ戻します。
+   */
+  function clearManualNameOverride() {
+    if (!STATE.manualNameOverride) return;
+    STATE.manualNameOverride = null;
+    STATE.manualNameScreenSignature = null;
+    nameSignatureChangeTracker.value = null;
+    nameSignatureChangeTracker.count = 0;
+    renderName({
+      matched: STATE.lastNameMatched ?? null,
+      normalized: STATE.lastNameNormalized,
+      suggestions: STATE.nameSuggestions,
+    }, null);
+  }
+
+  /**
+   * スワイプ等で画面が切り替わった際に手動名前を自動解除します。
+   */
+  function handleManualNameScreenChange() {
+    if (!STATE.manualNameOverride) {
+      STATE.manualNameScreenSignature = null;
+      nameSignatureChangeTracker.value = null;
+      nameSignatureChangeTracker.count = 0;
+      return;
+    }
+
+    const nextSignature = computeScreenSignature();
+    if (nextSignature === EMPTY_SCREEN_SIGNATURE) {
+      return;
+    }
+
+    if (!STATE.manualNameScreenSignature) {
+      STATE.manualNameScreenSignature = nextSignature;
+      nameSignatureChangeTracker.value = null;
+      nameSignatureChangeTracker.count = 0;
+      return;
+    }
+
+    if (STATE.manualNameScreenSignature === nextSignature) {
+      nameSignatureChangeTracker.value = null;
+      nameSignatureChangeTracker.count = 0;
+      return;
+    }
+
+    if (nameSignatureChangeTracker.value === nextSignature) {
+      nameSignatureChangeTracker.count += 1;
+    } else {
+      nameSignatureChangeTracker.value = nextSignature;
+      nameSignatureChangeTracker.count = 1;
+    }
+
+    if (nameSignatureChangeTracker.count >= SCREEN_CHANGE_CONFIRMATIONS) {
+      clearManualNameOverride();
+    }
   }
 
   /**
@@ -1264,6 +1368,29 @@
       hpIv: typeof ivSnapshot.hp === 'number' ? ivSnapshot.hp : null,
       name: nameKey,
     });
+  }
+
+  /**
+   * 2つの署名間で数値ステータスが変化したか判定します。
+   * @param {string | null} prev
+   * @param {string | null} next
+   * @returns {boolean}
+   */
+  function hasStatSignatureDelta(prev, next) {
+    if (!prev || !next || prev === next) return false;
+    try {
+      const prevObj = JSON.parse(prev);
+      const nextObj = JSON.parse(next);
+      const keys = /** @type {Array<'cp'|'hp'|'dust'|'atk'|'def'|'hpIv'>} */ (['cp', 'hp', 'dust', 'atk', 'def', 'hpIv']);
+      return keys.some((key) => {
+        const prevVal = prevObj?.[key] ?? null;
+        const nextVal = nextObj?.[key] ?? null;
+        return nextVal !== null && nextVal !== prevVal;
+      });
+    } catch (error) {
+      console.warn('[IV OCR] signature parse failed:', error);
+      return true;
+    }
   }
 
   /**
@@ -1361,6 +1488,14 @@
       return;
     }
 
+    if (hasStatSignatureDelta(STATE.manualIvScreenSignature, nextSignature)) {
+      clearManualIvOverrides({ source: 'panel' });
+      STATE.manualIvScreenSignature = nextSignature;
+      signatureChangeTracker.value = null;
+      signatureChangeTracker.count = 0;
+      return;
+    }
+
     if (signatureChangeTracker.value === nextSignature) {
       signatureChangeTracker.count += 1;
     } else {
@@ -1370,7 +1505,7 @@
 
     if (signatureChangeTracker.count >= SCREEN_CHANGE_CONFIRMATIONS) {
       clearManualIvOverrides({ source: 'panel' });
-      STATE.manualIvScreenSignature = null;
+      STATE.manualIvScreenSignature = nextSignature;
       signatureChangeTracker.value = null;
       signatureChangeTracker.count = 0;
     }
@@ -2702,19 +2837,44 @@
     reflectIvToDom(iv);
   }
 
-  function fillPokemonName(name) {
-    const input = document.querySelector('input[type="search"][placeholder="ポケモンを選択"]');
+  /**
+   * 9db 側の検索欄へ名前を反映します。
+   * @param {string} name
+   * @param {{focus?: boolean, triggerSelection?: boolean, dispatchChange?: boolean}} [options]
+   */
+  function fillPokemonName(name, options = {}) {
+    const {
+      focus = true,
+      triggerSelection = STATE.autoSelectName,
+      dispatchChange = true,
+    } = options;
+
+    const primaryInput = document.querySelector('#select3_1 input[type="search"]');
+    const fallbackInput = document.querySelector('input[type="search"][placeholder="ポケモンを選択"]');
+    const input = primaryInput instanceof HTMLInputElement ? primaryInput : fallbackInput;
     if (!input) return;
+
     const same = input.value === name;
-    input.focus();
+    if (focus && document.activeElement !== input) {
+      input.focus();
+    }
+
     if (!same) {
       input.value = name;
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    } else if (STATE.autoSelectName) {
+      if (dispatchChange) {
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } else if (triggerSelection && STATE.autoSelectName) {
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (dispatchChange) {
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }
-    scheduleTopCandidateSelection();
+
+    if (triggerSelection && STATE.autoSelectName) {
+      scheduleTopCandidateSelection();
+    }
   }
 
   // サジェストが開いたら先頭候補をクリックする
