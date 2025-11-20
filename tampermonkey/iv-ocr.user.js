@@ -1605,6 +1605,7 @@
     try {
       await stopCapture();
       updateStatus('要求中');
+      initOcrWorker();
       if (STATE.source === 'screen') {
         STATE.stream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 30 } },
@@ -1642,6 +1643,7 @@
     }
     STATE.running = false;
     updateStatus('停止');
+    disposeOcrWorker();
   }
 
   function updateStatus(text) {
@@ -1653,6 +1655,39 @@
     panel.style.top = `${Math.round(y)}px`;
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
+  }
+
+  function initOcrWorker() {
+    if (ocrWorker || typeof Worker === 'undefined') return;
+    try {
+      ocrWorker = new Worker(new URL('./ocr-worker.js', import.meta.url), { type: 'module' });
+      ocrWorker.addEventListener('message', (event) => {
+        const data = event.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type === 'ocr-response') {
+          const payload = data.payload;
+          const resolver = pendingOcrTasks.get(payload.id);
+          if (resolver) {
+            pendingOcrTasks.delete(payload.id);
+            resolver(payload);
+          }
+        }
+      });
+      ocrWorker.addEventListener('error', (error) => {
+        console.error('[IV OCR] OCR worker error:', error);
+      });
+    } catch (error) {
+      console.warn('[IV OCR] Worker initialization failed, falling back to main thread OCR:', error);
+      ocrWorker = null;
+    }
+  }
+
+  function disposeOcrWorker() {
+    if (ocrWorker) {
+      ocrWorker.terminate();
+      ocrWorker = null;
+    }
+    pendingOcrTasks.clear();
   }
 
   function restorePanelPosition() {
@@ -2095,6 +2130,8 @@
   // ---------------------
 
   const TesseractLib = window.Tesseract;
+  let ocrWorker = null;
+  const pendingOcrTasks = new Map();
 
   /**
    * 全ての ROI を OCR し、数値を抽出します。
@@ -2110,11 +2147,12 @@
 
     const readOne = async (r) => {
       const crop = cropCanvas(preview, r);
-      const ocr = await TesseractLib.recognize(crop, 'eng', {
-        tessedit_char_whitelist: '0123456789',
+      const { text } = await recognizeViaWorker(crop, {
+        kind: 'digits',
+        whitelist: '0123456789',
       });
-      const text = (ocr.data?.text || '').replace(/[^0-9]/g, '');
-      return text ? Number(text) : null;
+      const cleaned = text.replace(/[^0-9]/g, '');
+      return cleaned ? Number(cleaned) : null;
     };
 
     if (roi.cp) tasks.push(readOne(roi.cp).then((v) => { result.cp = v; }).catch(() => {}));
@@ -2172,6 +2210,48 @@
     }
     ctx.putImageData(imageData, 0, 0);
     return canvas;
+  }
+
+  async function recognizeViaWorker(canvas, options) {
+    if (!canvas) return { text: '', confidence: 0 };
+    if (!ocrWorker) {
+      return recognizeOnMainThread(canvas, options);
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { text: '', confidence: 0 };
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const id = `ocr-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return new Promise((resolve) => {
+      pendingOcrTasks.set(id, (response) => {
+        resolve({ text: response.text ?? '', confidence: Number(response.confidence ?? 0) });
+      });
+      ocrWorker.postMessage({
+        type: 'ocr-request',
+        payload: {
+          id,
+          kind: options.kind,
+          imageData,
+          whitelist: options.whitelist,
+          params: options.params,
+        },
+      });
+    });
+  }
+
+  async function recognizeOnMainThread(canvas, options) {
+    try {
+      const result = await TesseractLib.recognize(canvas, options.kind === 'name' ? 'jpn' : 'eng', {
+        ...(options.whitelist ? { tessedit_char_whitelist: options.whitelist } : {}),
+        ...(options.params || {}),
+      });
+      return {
+        text: result?.data?.text ?? '',
+        confidence: Number(result?.data?.confidence ?? 0),
+      };
+    } catch (error) {
+      console.warn('[IV OCR] recognizeOnMainThread error:', error);
+      return { text: '', confidence: 0 };
+    }
   }
 
   function computeMedian(values) {
@@ -2849,12 +2929,13 @@
     if (!canvas.width || !canvas.height) return null;
 
     try {
-      const res = await TesseractLib.recognize(canvas, 'jpn', {
-        tessedit_char_whitelist: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンヴァィゥェォッャュョー',
-        psm: 7,
+      const { text: rawText, confidence: nameConfidence } = await recognizeViaWorker(canvas, {
+        kind: 'name',
+        whitelist: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンヴァィゥェォッャュョー',
+        params: { psm: 7 },
       });
-      const confidence = Number(res?.data?.confidence ?? 0);
-      const normalized = normalizeKatakana(res?.data?.text ?? '');
+      const normalized = normalizeKatakana(rawText);
+      const confidence = nameConfidence || 100;
       if (normalized.length < 2) return null;
       if (confidence < 25 && normalized.length < 3) return null;
 

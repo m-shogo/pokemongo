@@ -29,8 +29,8 @@
 - **確認項目**: 手動入力保持ロジックに影響がないか（スワイプ検知が遅れていないか）。
 
 ## Step 4: Web Worker への処理分離
-- `workers/ocrWorker.js`（または `ts`）を追加し、OCR と前処理を Worker へ移す。
-- メインスレッドではキャンバスから `ImageData` を切り出し、Worker へポスト。Worker 側で Tesseract を呼び出す。
+- `tampermonkey/ocr-worker.js` を追加し、`importScripts` で Tesseract を読み込んだ上で `OffscreenCanvas` に `ImageData` を描画→OCR 実行→結果を `postMessage`。
+- メインスレッドでは `recognizeViaWorker` を導入し、Worker が使えない環境では従来の `Tesseract.recognize` にフォールバックする。`startCapture` で Worker を初期化し、`stopCapture` で terminate。
 - メッセージ型例:
   ```ts
   type OcrRequest = { id: string; roi: ROI; imageData: ImageData };
