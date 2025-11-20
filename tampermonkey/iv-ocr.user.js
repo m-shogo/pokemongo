@@ -115,6 +115,13 @@
     defGauge: '#4db6ac',
     hpGauge: '#9575cd'
   };
+  const CANVAS_MAX_WIDTH = 360; // 省リソース運用のための上限
+  const CANVAS_MAX_HEIGHT = 640;
+  const LOOP_INTERVALS = {
+    ocr: 750,
+    iv: 650,
+    name: 1800,
+  };
 
   const PERF_LOG_KEY = 'iv-ocr-perf-log';
   let perfEnabled = loadPerfLogFlag();
@@ -1043,7 +1050,7 @@
     if (STATE.autoFill) {
       fillTo9db(stable);
     }
-  }), 700);
+  }), LOOP_INTERVALS.ocr);
 
   const throttledIv = throttle(() => PERF.measure('iv-read', () => {
     if (!STATE.canvasEl) return;
@@ -1058,7 +1065,7 @@
     if (STATE.autoFill) {
       fillIvBars(effective);
     }
-  }), 600);
+  }), LOOP_INTERVALS.iv);
 
   const throttledName = throttle(async () => PERF.measureAsync('name-read', async () => {
     if (!STATE.canvasEl) return;
@@ -1086,7 +1093,7 @@
     }
     STATE.lastName = matched;
     handleManualNameScreenChange();
-  }), 1500);
+  }), LOOP_INTERVALS.name);
 
   async function loop() {
     if (!STATE.running || !STATE.videoEl || !STATE.ctx || !STATE.canvasEl) return;
@@ -1889,11 +1896,24 @@
     const vw = STATE.videoEl.videoWidth || 0;
     const vh = STATE.videoEl.videoHeight || 0;
     if (!vw || !vh) return;
-    if (STATE.canvasEl.width !== vw || STATE.canvasEl.height !== vh) {
-      STATE.canvasEl.width = vw;
-      STATE.canvasEl.height = vh;
-      STATE.canvasEl.style.aspectRatio = `${vw} / ${vh}`;
+    const nextSize = computeOptimalCanvasSize(vw, vh);
+    if (STATE.canvasEl.width !== nextSize.width || STATE.canvasEl.height !== nextSize.height) {
+      STATE.canvasEl.width = nextSize.width;
+      STATE.canvasEl.height = nextSize.height;
+      STATE.canvasEl.style.aspectRatio = `${nextSize.width} / ${nextSize.height}`;
     }
+  }
+
+  function computeOptimalCanvasSize(videoWidth, videoHeight) {
+    if (!videoWidth || !videoHeight) {
+      return { width: videoWidth || 1, height: videoHeight || 1 };
+    }
+    const widthScale = CANVAS_MAX_WIDTH / videoWidth;
+    const heightScale = CANVAS_MAX_HEIGHT / videoHeight;
+    const scale = Math.min(1, widthScale, heightScale);
+    const width = Math.max(1, Math.round(videoWidth * scale));
+    const height = Math.max(1, Math.round(videoHeight * scale));
+    return { width, height };
   }
 
   // ---------------------
