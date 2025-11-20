@@ -122,6 +122,10 @@
     iv: 650,
     name: 1800,
   };
+  const PREPROCESS_PROFILES = {
+    digits: { enabled: true, brightness: 1.15, contrast: 1.25, threshold: 150 },
+    name: { enabled: true, brightness: 1.05, contrast: 1.15, threshold: 140 },
+  };
 
   const PERF_LOG_KEY = 'iv-ocr-perf-log';
   let perfEnabled = loadPerfLogFlag();
@@ -2115,18 +2119,35 @@
   }
 
   function cropCanvas(preview, r) {
-    const canvas = cropCanvasRaw(preview, r);
+    return preprocessCanvas(cropCanvasRaw(preview, r), PREPROCESS_PROFILES.digits);
+  }
+
+  /**
+   * OCR 前にコントラスト調整・二値化を行います。
+   * @param {HTMLCanvasElement} canvas
+   * @param {{enabled?:boolean,brightness?:number,contrast?:number,threshold?:number}} [profile]
+   * @returns {HTMLCanvasElement}
+   */
+  function preprocessCanvas(canvas, profile) {
+    if (!canvas || !canvas.width || !canvas.height) return canvas;
+    const opts = profile ?? PREPROCESS_PROFILES.digits;
+    if (!opts?.enabled) return canvas;
     const ctx = canvas.getContext('2d');
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    for (let i = 0; i < img.data.length; i += 4) {
-      const rVal = img.data[i];
-      const gVal = img.data[i + 1];
-      const bVal = img.data[i + 2];
-      const luminance = 0.299 * rVal + 0.587 * gVal + 0.114 * bVal;
-      const value = luminance > 160 ? 255 : luminance < 100 ? 0 : luminance;
-      img.data[i] = img.data[i + 1] = img.data[i + 2] = value;
+    if (!ctx) return canvas;
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const brightness = Number.isFinite(opts.brightness) ? opts.brightness : 1;
+    const contrast = Number.isFinite(opts.contrast) ? opts.contrast : 1;
+    const threshold = Number.isFinite(opts.threshold) ? opts.threshold : null;
+    for (let i = 0; i < data.length; i += 4) {
+      let luminance = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+      luminance = (luminance - 128) * contrast + 128;
+      luminance = luminance * brightness;
+      luminance = clamp(luminance, 0, 255);
+      const value = threshold === null ? luminance : (luminance >= threshold ? 255 : 0);
+      data[i] = data[i + 1] = data[i + 2] = value;
     }
-    ctx.putImageData(img, 0, 0);
+    ctx.putImageData(imageData, 0, 0);
     return canvas;
   }
 
@@ -2738,7 +2759,7 @@
     }
     if (!target) return null;
 
-    const canvas = cropCanvasRaw(preview, target);
+    const canvas = preprocessCanvas(cropCanvasRaw(preview, target), PREPROCESS_PROFILES.name);
     if (!canvas.width || !canvas.height) return null;
 
     try {
