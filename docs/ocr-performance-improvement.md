@@ -41,9 +41,9 @@
 
 ## Step 5: OffscreenCanvas の活用とフォールバック
 - Worker 内で `OffscreenCanvas` を使える場合は描画から前処理まで完結させる。
-- 非対応ブラウザではメインスレッドの `HTMLCanvasElement` で代替し、処理は Step 4 のワーカー構成を保つ。
-- **リスク**: HTTPS でないページや古い Edge などでは `OffscreenCanvas` が無効。`instanceof OffscreenCanvas` で判定し、try-catch でフォールバック。
-- **確認項目**: `OffscreenCanvas` 利用時とフォールバック時の挙動が一致しているか。
+- `OffscreenCanvas` が未実装または初期化エラーになる環境では `ImageData` をそのまま Tesseract に渡し、ワーカー構成を維持しながら性能差を最小化する。
+- **リスク**: HTTPS でないページや古い Edge などでは `OffscreenCanvas` が無効。try-catch で判定し、フォールバックが必ず走るようにする。
+- **確認項目**: `OffscreenCanvas` 利用時とフォールバック時の OCR 精度・レスポンスが同等か。
 
 ## Step 6: メモリ管理とクリーンアップ
 - OCR 結果のバッファ長を固定（例: 数十件）にし、`shift()` で古いデータを破棄する。

@@ -33,17 +33,32 @@ self.addEventListener('message', async (event) => {
 
 async function handleOcrRequest(request) {
   const { id, imageData, kind, whitelist, params } = request;
-  const canvas = new OffscreenCanvas(imageData.width, imageData.height);
-  const ctx = canvas.getContext('2d');
-  ctx.putImageData(imageData, 0, 0);
   const lang = kind === 'name' ? 'jpn' : 'eng';
   const options = Object.assign(
     {},
     whitelist ? { tessedit_char_whitelist: whitelist } : null,
     params || {}
   );
-  const result = await TesseractLib.recognize(canvas, lang, options);
+  const target = createRenderTarget(imageData);
+  const result = await TesseractLib.recognize(target, lang, options);
   const text = result?.data?.text ?? '';
   const confidence = Number(result?.data?.confidence ?? 0);
   return { id, text, confidence };
+}
+
+function createRenderTarget(imageData) {
+  if (typeof OffscreenCanvas === 'function') {
+    try {
+      const canvas = new OffscreenCanvas(imageData.width, imageData.height);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.putImageData(imageData, 0, 0);
+        return canvas;
+      }
+    } catch (error) {
+      // fall through to ImageData fallback
+      console.warn('[IV OCR] OffscreenCanvas unavailable in worker, fallback to ImageData:', error);
+    }
+  }
+  return imageData;
 }
