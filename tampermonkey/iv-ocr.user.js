@@ -53,6 +53,16 @@
    */
 
   /**
+   * Step7 で用いる機能フラグの型
+   * @typedef {{worker:boolean,preprocessDigits:boolean,preprocessName:boolean,statStabilizer:boolean,ivStabilizer:boolean}} FeatureFlags
+   */
+
+  /**
+   * リグレッションチェック項目の型
+   * @typedef {{key:string,label:string,description:string}} ChecklistItem
+   */
+
+  /**
    * スクリプト全体で使う状態オブジェクト
    * @typedef {{
    *   stream: MediaStream | null,
@@ -161,6 +171,30 @@
   };
   const OCR_RESULT_HISTORY_LIMIT = 40;
   const OCR_SUCCESS_MIN_CONFIDENCE = 45;
+  const FEATURE_FLAG_KEY = 'iv-ocr-feature-flags-v1';
+  const TEST_CHECKLIST_KEY = 'iv-ocr-test-checklist-v1';
+  /** @type {ChecklistItem[]} */
+  const TEST_SCENARIOS = [
+    { key: 'autoFill', label: '自動入力が最新数値に追従する', description: 'CP/HP/すな→9db へ正しく転記されるか' },
+    { key: 'manualHold', label: '手動入力保持が意図通り解除される', description: '画面切り替え後に自動リセットされるか' },
+    { key: 'roiAdjust', label: 'ROI 校正/保存が成功する', description: '枠を引き直し → 再読込後も復元されるか' },
+    { key: 'swipeDetect', label: 'スワイプ検知でIV再読込が走る', description: 'スクリーンシグネチャ追跡がループしないか' },
+    { key: 'nameSuggest', label: '候補ボタンと自動選択がズレない', description: '名前候補→検索欄→候補クリックが同期するか' }
+  ];
+  const FEATURE_FLAG_DEFS = [
+    { key: 'worker', label: 'Web Worker OCR', description: 'メインスレッドとは別スレッドで OCR を実行 (Step4)' },
+    { key: 'preprocessDigits', label: '数値の前処理', description: 'CP/HP/すな切り出しに二値化フィルタを適用 (Step2)' },
+    { key: 'preprocessName', label: '名前の前処理', description: '名前 OCR 前に明度/コントラスト調整 (Step2)' },
+    { key: 'statStabilizer', label: '数値の安定化ロジック', description: '中央値＋確認回数でノイズを除去 (Step3)' },
+    { key: 'ivStabilizer', label: 'IV 安定化ロジック', description: 'ゲージ分析結果を連続確認 (Step3)' }
+  ];
+  const DEFAULT_FEATURE_FLAGS = /** @type {FeatureFlags} */ ({
+    worker: true,
+    preprocessDigits: true,
+    preprocessName: true,
+    statStabilizer: true,
+    ivStabilizer: true,
+  });
 
   const PERF_LOG_KEY = 'iv-ocr-perf-log';
   let perfEnabled = loadPerfLogFlag();
@@ -254,6 +288,9 @@
   STATE.autoSelectName = loadAutoSelectFlag();
   /** @type {OcrLogEntry[]} */
   const ocrResultHistory = [];
+  /** @type {FeatureFlags} */
+  let featureFlags = loadFeatureFlags();
+  const testChecklistState = loadTestChecklist();
 
   // ---------------------
   // UI 初期化
@@ -435,6 +472,20 @@
       transform: none;
     }
     .ivocr-copy-note { font-size: 11px; color:#bdbdbd; line-height: 1.5; margin-top: 6px; }
+    .ivocr-flag-list { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+    .ivocr-flag-item { display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#ddd; line-height:1.4; }
+    .ivocr-flag-item input[type="checkbox"] { margin-top:3px; }
+    .ivocr-flag-item strong { display:block; font-size:12px; color:#fff; }
+    .ivocr-flag-item small { display:block; color:#aaa; font-size:11px; }
+    .ivocr-checklist { gap:6px; }
+    .ivocr-checklist__header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .ivocr-checklist__list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+    .ivocr-checklist__item { display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#ddd; line-height:1.4; }
+    .ivocr-checklist__item input[type="checkbox"] { margin-top:3px; }
+    .ivocr-checklist__item span { flex:1; }
+    .ivocr-checklist__summary { font-size:11px; color:#bbb; margin:0 0 4px 0; }
+    .ivocr-checklist__reset { font-size:11px; border:1px solid #555; background:#1b1b1b; color:#eee; border-radius:4px; padding:4px 8px; cursor:pointer; }
+    .ivocr-checklist__reset:hover { background:#272727; }
     .ivocr-accordion { border-top:1px solid #2a2a2a; margin-top:12px; padding-top:8px; display:flex; flex-direction:column; gap:8px; }
     .ivocr-accordion__btn { width:100%; text-align:left; background:#1a1a1a; color:#e0e0e0; border:1px solid #333; border-radius:6px; padding:8px 10px; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; transition:background 0.2s ease; }
     .ivocr-accordion__btn:hover { background:#232323; }
@@ -738,6 +789,18 @@
       <div class="ivocr-row ivocr-small">
         Tips: 許可ダイアログでミラーウィンドウまたはキャプチャデバイスを選択してください。
       </div>
+      <div class="ivocr-fieldset">
+        <div class="ivocr-legend">実験的設定 (Step7)</div>
+        <div id="ivocr-lab-flag-list" class="ivocr-flag-list"></div>
+      </div>
+      <div class="ivocr-fieldset ivocr-checklist">
+        <div class="ivocr-checklist__header">
+          <div class="ivocr-legend">リグレッション確認</div>
+          <button type="button" class="ivocr-checklist__reset" id="ivocr-checklist-reset">チェックをリセット</button>
+        </div>
+        <p class="ivocr-checklist__summary" id="ivocr-checklist-summary"></p>
+        <ul class="ivocr-checklist__list" id="ivocr-checklist-list"></ul>
+      </div>
       <div class="ivocr-accordion ivocr-league-accordion" id="ivocr-league-accordion">
         <div>
           <button class="ivocr-accordion__btn" data-accordion-toggle="league-super">スーパーリーグ<span>開く</span></button>
@@ -800,6 +863,10 @@
   const headerEl = panel.querySelector('.ivocr-header');
   const nameInput = /** @type {HTMLInputElement | null} */ (panel.querySelector('#ivocr-name-input'));
   const elNameSuggestions = panel.querySelector('#ivocr-name-suggestions');
+  const elFlagList = panel.querySelector('#ivocr-lab-flag-list');
+  const elChecklistList = panel.querySelector('#ivocr-checklist-list');
+  const btnChecklistReset = panel.querySelector('#ivocr-checklist-reset');
+  const elChecklistSummary = panel.querySelector('#ivocr-checklist-summary');
   /** @typedef {'atk' | 'def' | 'hp'} IvKind */
   const IV_KINDS = /** @type {IvKind[]} */ (['atk', 'def', 'hp']);
 
@@ -855,6 +922,11 @@
   if (headerEl) {
     enablePanelDrag(headerEl);
   }
+  renderFeatureFlagList();
+  renderChecklist();
+  btnChecklistReset?.addEventListener('click', () => {
+    resetChecklist();
+  });
 
   // ---------------------
   // 校正クリック処理
@@ -1702,6 +1774,7 @@
   }
 
   function initOcrWorker() {
+    if (!isFeatureFlagEnabled('worker')) return;
     if (ocrWorker || typeof Worker === 'undefined') return;
     try {
       ocrWorker = new Worker(new URL('./ocr-worker.js', import.meta.url), { type: 'module' });
@@ -2131,6 +2204,74 @@
   }
 
   /**
+   * 機能フラグを localStorage から読み込みます。
+   * Step7 で各機能を個別にロールバックできるようにします。
+   * @returns {FeatureFlags}
+   */
+  function loadFeatureFlags() {
+    try {
+      const raw = localStorage.getItem(FEATURE_FLAG_KEY);
+      if (!raw) return { ...DEFAULT_FEATURE_FLAGS };
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_FEATURE_FLAGS, ...(parsed || {}) };
+    } catch (error) {
+      console.warn('[IV OCR] loadFeatureFlags error:', error);
+      return { ...DEFAULT_FEATURE_FLAGS };
+    }
+  }
+
+  function saveFeatureFlags(flags) {
+    try {
+      localStorage.setItem(FEATURE_FLAG_KEY, JSON.stringify(flags));
+    } catch (error) {
+      console.warn('[IV OCR] saveFeatureFlags error:', error);
+    }
+  }
+
+  function isFeatureFlagEnabled(key) {
+    return featureFlags[key] !== false;
+  }
+
+  function setFeatureFlag(key, enabled) {
+    featureFlags = { ...featureFlags, [key]: Boolean(enabled) };
+    saveFeatureFlags(featureFlags);
+    applyFeatureFlagSideEffects(key);
+  }
+
+  function applyFeatureFlagSideEffects(key) {
+    if (key === 'worker') {
+      if (!isFeatureFlagEnabled('worker')) {
+        disposeOcrWorker();
+      } else if (STATE.running) {
+        initOcrWorker();
+      }
+    }
+  }
+
+  /**
+   * Step7 のチェックリストを localStorage へ保存・復元します。
+   */
+  function loadTestChecklist() {
+    try {
+      const raw = localStorage.getItem(TEST_CHECKLIST_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed ? parsed : {};
+    } catch (error) {
+      console.warn('[IV OCR] loadTestChecklist error:', error);
+      return {};
+    }
+  }
+
+  function saveTestChecklist(state) {
+    try {
+      localStorage.setItem(TEST_CHECKLIST_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.warn('[IV OCR] saveTestChecklist error:', error);
+    }
+  }
+
+  /**
    * ROI を可視化するための枠線を描画します。
    * @param {CanvasRenderingContext2D} ctx
    * @param {HTMLCanvasElement} canvas
@@ -2175,6 +2316,71 @@
     }
 
     ctx.restore();
+  }
+
+  function renderFeatureFlagList() {
+    if (!(elFlagList instanceof HTMLElement)) return;
+    elFlagList.replaceChildren();
+    FEATURE_FLAG_DEFS.forEach((def) => {
+      const label = document.createElement('label');
+      label.className = 'ivocr-flag-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = isFeatureFlagEnabled(def.key);
+      input.dataset.flagKey = def.key;
+      input.addEventListener('change', () => {
+        setFeatureFlag(def.key, input.checked);
+      });
+      const textWrap = document.createElement('span');
+      const strong = document.createElement('strong');
+      strong.textContent = def.label;
+      const small = document.createElement('small');
+      small.textContent = def.description;
+      textWrap.appendChild(strong);
+      textWrap.appendChild(small);
+      label.appendChild(input);
+      label.appendChild(textWrap);
+      elFlagList.appendChild(label);
+    });
+  }
+
+  function renderChecklist() {
+    if (!(elChecklistList instanceof HTMLElement)) return;
+    elChecklistList.replaceChildren();
+    TEST_SCENARIOS.forEach((item) => {
+      const li = document.createElement('li');
+      li.className = 'ivocr-checklist__item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = Boolean(testChecklistState[item.key]);
+      input.dataset.checkKey = item.key;
+      input.addEventListener('change', () => {
+        testChecklistState[item.key] = input.checked;
+        saveTestChecklist(testChecklistState);
+        updateChecklistSummary();
+      });
+      const span = document.createElement('span');
+      span.innerHTML = `<strong>${item.label}</strong><br>${item.description}`;
+      li.appendChild(input);
+      li.appendChild(span);
+      elChecklistList.appendChild(li);
+    });
+    updateChecklistSummary();
+  }
+
+  function updateChecklistSummary() {
+    if (!(elChecklistSummary instanceof HTMLElement)) return;
+    const total = TEST_SCENARIOS.length;
+    const done = TEST_SCENARIOS.filter((item) => testChecklistState[item.key]).length;
+    elChecklistSummary.textContent = total ? `確認済み ${done}/${total} 件` : '';
+  }
+
+  function resetChecklist() {
+    TEST_SCENARIOS.forEach((item) => {
+      testChecklistState[item.key] = false;
+    });
+    saveTestChecklist(testChecklistState);
+    renderChecklist();
   }
 
   // ---------------------
@@ -2232,7 +2438,9 @@
   }
 
   function cropCanvas(preview, r) {
-    return preprocessCanvas(cropCanvasRaw(preview, r), PREPROCESS_PROFILES.digits);
+    const raw = cropCanvasRaw(preview, r);
+    if (!isFeatureFlagEnabled('preprocessDigits')) return raw;
+    return preprocessCanvas(raw, PREPROCESS_PROFILES.digits);
   }
 
   /**
@@ -2312,7 +2520,8 @@
    */
   async function recognizeViaWorker(canvas, options) {
     if (!canvas) return { text: '', confidence: 0 };
-    if (!ocrWorker) {
+    const workerEnabled = isFeatureFlagEnabled('worker');
+    if (!ocrWorker || !workerEnabled) {
       return recognizeOnMainThread(canvas, options);
     }
     const ctx = canvas.getContext('2d');
@@ -2462,6 +2671,9 @@
    * @returns {{cp:number|null,hp:number|null,dust:number|null}|null}
    */
   function stabilize(next, buffer, previous) {
+    if (!isFeatureFlagEnabled('statStabilizer')) {
+      return next;
+    }
     const prev = previous ?? { cp: null, hp: null, dust: null };
     const out = { cp: null, hp: null, dust: null };
     let hasUpdate = false;
@@ -2490,6 +2702,20 @@
 
   // 直近のサンプルから中央値を用いて揺れを抑える
   function stabilizeIvSamples(next, buffer, previous) {
+    if (!isFeatureFlagEnabled('ivStabilizer')) {
+      const fallback = { atk: null, def: null, hp: null };
+      IV_KINDS.forEach((key) => {
+        const sample = next[key];
+        if (sample && Number.isFinite(sample.ratio)) {
+          fallback[key] = clamp(Math.round(sample.ratio * 15), 0, 15);
+        } else if (previous?.[key] != null) {
+          fallback[key] = previous[key];
+        } else {
+          fallback[key] = null;
+        }
+      });
+      return fallback;
+    }
     const prev = previous ?? { atk: null, def: null, hp: null };
     const result = {
       atk: prev.atk ?? null,
@@ -3070,7 +3296,10 @@
     }
     if (!target) return null;
 
-    const canvas = preprocessCanvas(cropCanvasRaw(preview, target), PREPROCESS_PROFILES.name);
+    const rawCanvas = cropCanvasRaw(preview, target);
+    const canvas = isFeatureFlagEnabled('preprocessName')
+      ? preprocessCanvas(rawCanvas, PREPROCESS_PROFILES.name)
+      : rawCanvas;
     if (!canvas.width || !canvas.height) return null;
 
     try {
