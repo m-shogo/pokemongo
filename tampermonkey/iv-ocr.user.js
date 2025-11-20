@@ -33,6 +33,26 @@
    */
 
   /**
+   * OCR 処理のログ 1 件分を表す型
+   * @typedef {{
+   *   id: string,
+   *   kind: 'digits' | 'name',
+   *   text: string,
+   *   confidence: number,
+   *   source: 'worker' | 'main',
+   *   duration: number,
+   *   timestamp: number,
+   *   success: boolean,
+   *   error?: string | null
+   * }} OcrLogEntry
+   */
+
+  /**
+   * OCR 実行時の追加オプション
+   * @typedef {{kind: 'digits' | 'name', whitelist?: string, params?: Record<string, any>}} OcrOptions
+   */
+
+  /**
    * スクリプト全体で使う状態オブジェクト
    * @typedef {{
    *   stream: MediaStream | null,
@@ -139,6 +159,8 @@
     digits: { enabled: true, brightness: 1.15, contrast: 1.25, threshold: 150 },
     name: { enabled: true, brightness: 1.05, contrast: 1.15, threshold: 140 },
   };
+  const OCR_RESULT_HISTORY_LIMIT = 40;
+  const OCR_SUCCESS_MIN_CONFIDENCE = 45;
 
   const PERF_LOG_KEY = 'iv-ocr-perf-log';
   let perfEnabled = loadPerfLogFlag();
@@ -230,6 +252,8 @@
   let nameSelectionTimer = null;
 
   STATE.autoSelectName = loadAutoSelectFlag();
+  /** @type {OcrLogEntry[]} */
+  const ocrResultHistory = [];
 
   // ---------------------
   // UI 初期化
@@ -752,6 +776,8 @@
   const elValCp = panel.querySelector('#ivocr-val-cp');
   const elValHp = panel.querySelector('#ivocr-val-hp');
   const elValDust = panel.querySelector('#ivocr-val-dust');
+  const elAutoTimestamp = panel.querySelector('#ivocr-auto-timestamp');
+  const elOcrScore = panel.querySelector('#ivocr-ocr-score');
   const elAutoFill = /** @type {HTMLInputElement} */ (panel.querySelector('#ivocr-autofill'));
   const elAutoSelect = /** @type {HTMLInputElement} */ (panel.querySelector('#ivocr-autoselect'));
   const btnCalibCp = panel.querySelector('#ivocr-calib-cp');
@@ -1644,6 +1670,24 @@
     STATE.running = false;
     updateStatus('停止');
     disposeOcrWorker();
+    releaseCanvas();
+    clearOcrHistory();
+    STATE.lastAutoFillAt = null;
+    updateAutoFillTimestamp();
+  }
+
+  function releaseCanvas() {
+    if (!STATE.canvasEl) return;
+    const { canvasEl } = STATE;
+    const width = canvasEl.width || 1;
+    const height = canvasEl.height || 1;
+    canvasEl.width = width;
+    canvasEl.height = height;
+    const ctx = canvasEl.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    }
+    STATE.ctx = ctx;
   }
 
   function updateStatus(text) {
@@ -1687,6 +1731,14 @@
       ocrWorker.terminate();
       ocrWorker = null;
     }
+    drainPendingOcrTasks('worker disposed');
+  }
+
+  function drainPendingOcrTasks(reason) {
+    if (!pendingOcrTasks.size) return;
+    pendingOcrTasks.forEach((resolver) => {
+      resolver({ text: '', confidence: 0, error: reason ?? 'aborted', aborted: true });
+    });
     pendingOcrTasks.clear();
   }
 
@@ -2212,6 +2264,52 @@
     return canvas;
   }
 
+  function isSuccessfulOcr(text, confidence) {
+    if (!text) return false;
+    const trimmed = text.trim();
+    if (!trimmed.length) return false;
+    return confidence >= OCR_SUCCESS_MIN_CONFIDENCE;
+  }
+
+  /**
+   * OCR の最新履歴を管理し、成功率を更新します。
+   * @param {OcrLogEntry} entry
+   */
+  function recordOcrResult(entry) {
+    ocrResultHistory.push(entry);
+    if (ocrResultHistory.length > OCR_RESULT_HISTORY_LIMIT) {
+      ocrResultHistory.shift();
+    }
+    STATE.ocrStats.attempts += 1;
+    if (entry.success) {
+      STATE.ocrStats.successes += 1;
+    }
+    updateOcrStatsLabel();
+  }
+
+  function clearOcrHistory() {
+    if (ocrResultHistory.length) {
+      ocrResultHistory.length = 0;
+    }
+    STATE.ocrStats.attempts = 0;
+    STATE.ocrStats.successes = 0;
+    updateOcrStatsLabel();
+  }
+
+  function updateOcrStatsLabel() {
+    if (!(elOcrScore instanceof HTMLElement)) return;
+    if (!STATE.ocrStats.attempts) {
+      elOcrScore.textContent = '-';
+      return;
+    }
+    const ratio = Math.min(1, STATE.ocrStats.successes / STATE.ocrStats.attempts);
+    elOcrScore.textContent = `${(ratio * 100).toFixed(1)}%`;
+  }
+
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {OcrOptions} options
+   */
   async function recognizeViaWorker(canvas, options) {
     if (!canvas) return { text: '', confidence: 0 };
     if (!ocrWorker) {
@@ -2219,17 +2317,37 @@
     }
     const ctx = canvas.getContext('2d');
     if (!ctx) return { text: '', confidence: 0 };
+    const kind = options.kind ?? 'digits';
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const id = `ocr-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const startedAt = performance.now();
     return new Promise((resolve) => {
       pendingOcrTasks.set(id, (response) => {
-        resolve({ text: response.text ?? '', confidence: Number(response.confidence ?? 0) });
+        if (response?.aborted) {
+          resolve({ text: '', confidence: 0 });
+          return;
+        }
+        const text = response?.text ?? '';
+        const confidence = Number(response?.confidence ?? 0);
+        const error = response?.error ?? null;
+        recordOcrResult({
+          id,
+          kind,
+          text,
+          confidence,
+          source: 'worker',
+          duration: performance.now() - startedAt,
+          timestamp: Date.now(),
+          success: !error && isSuccessfulOcr(text, confidence),
+          error,
+        });
+        resolve({ text, confidence });
       });
       ocrWorker.postMessage({
         type: 'ocr-request',
         payload: {
           id,
-          kind: options.kind,
+          kind,
           imageData,
           whitelist: options.whitelist,
           params: options.params,
@@ -2239,17 +2357,44 @@
   }
 
   async function recognizeOnMainThread(canvas, options) {
+    const startedAt = performance.now();
+    const id = `ocr-main-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     try {
-      const result = await TesseractLib.recognize(canvas, options.kind === 'name' ? 'jpn' : 'eng', {
+      const lang = options.kind === 'name' ? 'jpn' : 'eng';
+      const result = await TesseractLib.recognize(canvas, lang, {
         ...(options.whitelist ? { tessedit_char_whitelist: options.whitelist } : {}),
         ...(options.params || {}),
       });
+      const text = result?.data?.text ?? '';
+      const confidence = Number(result?.data?.confidence ?? 0);
+      recordOcrResult({
+        id,
+        kind: options.kind,
+        text,
+        confidence,
+        source: 'main',
+        duration: performance.now() - startedAt,
+        timestamp: Date.now(),
+        success: isSuccessfulOcr(text, confidence),
+        error: null,
+      });
       return {
-        text: result?.data?.text ?? '',
-        confidence: Number(result?.data?.confidence ?? 0),
+        text,
+        confidence,
       };
     } catch (error) {
       console.warn('[IV OCR] recognizeOnMainThread error:', error);
+      recordOcrResult({
+        id,
+        kind: options.kind,
+        text: '',
+        confidence: 0,
+        source: 'main',
+        duration: performance.now() - startedAt,
+        timestamp: Date.now(),
+        success: false,
+        error: error?.message ?? 'main-thread-error',
+      });
       return { text: '', confidence: 0 };
     }
   }
@@ -3070,6 +3215,25 @@
   // DOM 自動入力処理
   // ---------------------
 
+  function markAutoFill() {
+    if (!STATE.autoFill) return;
+    STATE.lastAutoFillAt = Date.now();
+    updateAutoFillTimestamp();
+  }
+
+  function updateAutoFillTimestamp() {
+    if (!(elAutoTimestamp instanceof HTMLElement)) return;
+    if (!STATE.lastAutoFillAt) {
+      elAutoTimestamp.textContent = '-';
+      return;
+    }
+    const date = new Date(STATE.lastAutoFillAt);
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    elAutoTimestamp.textContent = `${hh}:${mm}:${ss}`;
+  }
+
   /**
    * 9db 側の入力フォームを探索して値を入力します。
    * @param {{cp:number|null,hp:number|null,dust:number|null}} values
@@ -3078,14 +3242,29 @@
     const cpInput = findInputByLabels(['CP']) ?? findInputByHints(['cp']);
     const hpInput = findInputByLabels(['HP']) ?? findInputByHints(['hp']);
     const dustInput = findInputByLabels(['ほしのすな', 'すな', '砂']) ?? findInputByHints(['dust', 'すな']);
+    let wrote = false;
 
-    if (cpInput && typeof values.cp === 'number') setInputValue(cpInput, String(values.cp));
-    if (hpInput && typeof values.hp === 'number') setInputValue(hpInput, String(values.hp));
-    if (dustInput && typeof values.dust === 'number') setInputValue(dustInput, String(values.dust));
+    if (cpInput && typeof values.cp === 'number') {
+      setInputValue(cpInput, String(values.cp));
+      wrote = true;
+    }
+    if (hpInput && typeof values.hp === 'number') {
+      setInputValue(hpInput, String(values.hp));
+      wrote = true;
+    }
+    if (dustInput && typeof values.dust === 'number') {
+      setInputValue(dustInput, String(values.dust));
+      wrote = true;
+    }
+
+    if (wrote) {
+      markAutoFill();
+    }
   }
 
   function fillIvBars(iv) {
     reflectIvToDom(iv);
+    markAutoFill();
   }
 
   /**
@@ -3598,6 +3777,8 @@
   renderIv(getEffectiveIv({ atk: null, def: null, hp: null }));
   updateStatus('Idle');
   updateCalibButtonState();
+  updateAutoFillTimestamp();
+  updateOcrStatsLabel();
 
 })();
 

@@ -46,10 +46,12 @@
 - **確認項目**: `OffscreenCanvas` 利用時とフォールバック時の OCR 精度・レスポンスが同等か。
 
 ## Step 6: メモリ管理とクリーンアップ
-- OCR 結果のバッファ長を固定（例: 数十件）にし、`shift()` で古いデータを破棄する。
-- `stopCapture()` で `ImageData` や Worker を確実に解放。イベントリスナーの解除と `requestAnimationFrame` のキャンセルを再確認。
-- **リスク**: クリーンアップ漏れがあるとタブ閉鎖までメモリが解放されない。
-- **確認項目**: Chrome の Memory プロファイルでスナップショットを比較し、リークがないか確認。
+- OCR 結果のログを 40 件で打ち止めにし、古いものは `shift()` で破棄。成功率（`#ivocr-ocr-score`）はこのバッファを参照して更新する。
+- `stopCapture()` で `requestAnimationFrame` のキャンセルに加えて、キャンバスのピクセルバッファをクリアし、`ocrResultHistory`・`STATE.ocrStats`・`STATE.lastAutoFillAt` をリセットする。
+- Worker 終了時には `drainPendingOcrTasks()` で未解決の OCR Promise を空返信で resolve し、ImageData 参照を破棄した上で `terminate()` を呼ぶ。
+- 自動入力が走ったタイミングを `markAutoFill()` で記録し、`#ivocr-auto-timestamp` に最終転記時刻を表示。手動停止時は `null` に戻して UI をリセットする。
+- **リスク**: クリーンアップ漏れがあるとタブ閉鎖までメモリが解放されない。特に Worker 側で例外が出た場合に `drainPendingOcrTasks` が呼ばれているかを確認する。
+- **確認項目**: Chrome の Memory プロファイルで `startCapture`→`stopCapture` を 3 周繰り返し、ヒープグラフが右肩上がりになっていないか。成功率表示が capture のたびに初期化されるか。停止直後に pending Promise が残っていないか（DevTools の async スタックで確認）。
 
 ## Step 7: リグレッションテストとユーザー確認
 - 各ステップ完了ごとに主要なシナリオ（自動入力、手動入力保持、ROI 校正、スワイプ検知、候補ボタン）をチェック。
