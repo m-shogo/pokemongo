@@ -50,8 +50,10 @@
   *   lastName: string | null,
   *   lastNameMatched: string | null,
    *   lastIv: {atk: number | null, def: number | null, hp: number | null},
-   *   stableBuf: {cp: number[], hp: number[], dust: number[]},
+  *   stableBuf: {cp: number[], hp: number[], dust: number[]},
+  *   statConfirmations: Record<'cp'|'hp'|'dust', {value:number|null,count:number}>,
    *   stableIvBuf: {atk: GaugeSample[], def: GaugeSample[], hp: GaugeSample[]},
+  *   ivConfirmations: Record<'atk'|'def'|'hp', {value:number|null,count:number}>,
    *   draftRect: ROI | null,
    *   lastAutoFillAt: number | null,
    *   ocrStats: {attempts: number, successes: number},
@@ -122,6 +124,17 @@
     iv: 650,
     name: 1800,
   };
+  const STAT_KEYS = /** @type {Array<'cp'|'hp'|'dust'>} */ (['cp', 'hp', 'dust']);
+  const STAT_STABILIZE_CONFIG = {
+    cp: { buffer: 5, minSamples: 3, delta: 35, confirmations: 2 },
+    hp: { buffer: 5, minSamples: 3, delta: 15, confirmations: 2 },
+    dust: { buffer: 5, minSamples: 3, delta: 120, confirmations: 2 },
+  };
+  const IV_STABILIZE_CONFIG = {
+    atk: { buffer: 5, minSamples: 3, delta: 1, confirmations: 2 },
+    def: { buffer: 5, minSamples: 3, delta: 1, confirmations: 2 },
+    hp: { buffer: 5, minSamples: 3, delta: 1, confirmations: 2 },
+  };
   const PREPROCESS_PROFILES = {
     digits: { enabled: true, brightness: 1.15, contrast: 1.25, threshold: 150 },
     name: { enabled: true, brightness: 1.05, contrast: 1.15, threshold: 140 },
@@ -179,7 +192,9 @@
     lastNameMatched: null,
     lastIv: { atk: null, def: null, hp: null },
     stableBuf: { cp: [], hp: [], dust: [] },
+    statConfirmations: createConfirmationState(['cp', 'hp', 'dust']),
     stableIvBuf: { atk: [], def: [], hp: [] },
+    ivConfirmations: createConfirmationState(IV_KINDS),
     draftRect: null,
     lastAutoFillAt: null,
     ocrStats: { attempts: 0, successes: 0 },
@@ -761,6 +776,14 @@
   const elNameSuggestions = panel.querySelector('#ivocr-name-suggestions');
   /** @typedef {'atk' | 'def' | 'hp'} IvKind */
   const IV_KINDS = /** @type {IvKind[]} */ (['atk', 'def', 'hp']);
+
+  function createConfirmationState(keys) {
+    const store = {};
+    keys.forEach((key) => {
+      store[key] = { value: null, count: 0 };
+    });
+    return store;
+  }
   /** @type {Record<IvKind, HTMLInputElement | null>} */
   const ivInputs = {
     atk: panel.querySelector('#ivocr-iv-atk-input'),
@@ -1047,7 +1070,7 @@
     if (!STATE.canvasEl) return;
     const next = await readAll(STATE.canvasEl, STATE.roi);
     if (!next) return;
-    const stable = stabilize(next, STATE.stableBuf);
+    const stable = stabilize(next, STATE.stableBuf, STATE.lastValues);
     if (!stable) return;
     STATE.lastValues = stable;
     renderValues(stable);
@@ -2151,30 +2174,93 @@
     return canvas;
   }
 
+  function computeMedian(values) {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 1) {
+      return sorted[mid];
+    }
+    return Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  }
+
+  function shouldAcceptStat(key, candidate, lastValue) {
+    if (candidate == null) return false;
+    const config = STAT_STABILIZE_CONFIG[key];
+    const slot = STATE.statConfirmations[key];
+    if (lastValue == null || Math.abs(candidate - lastValue) <= config.delta) {
+      slot.value = null;
+      slot.count = 0;
+      return true;
+    }
+    if (slot.value === candidate) {
+      slot.count += 1;
+    } else {
+      slot.value = candidate;
+      slot.count = 1;
+    }
+    if (slot.count >= config.confirmations) {
+      slot.value = null;
+      slot.count = 0;
+      return true;
+    }
+    return false;
+  }
+
+  function shouldAcceptIv(key, candidate, lastValue) {
+    if (candidate == null) return false;
+    const config = IV_STABILIZE_CONFIG[key];
+    const slot = STATE.ivConfirmations[key];
+    if (lastValue == null || Math.abs(candidate - lastValue) <= config.delta) {
+      slot.value = null;
+      slot.count = 0;
+      return true;
+    }
+    if (slot.value === candidate) {
+      slot.count += 1;
+    } else {
+      slot.value = candidate;
+      slot.count = 1;
+    }
+    if (slot.count >= config.confirmations) {
+      slot.value = null;
+      slot.count = 0;
+      return true;
+    }
+    return false;
+  }
+
   /**
    * ノイズ低減のために 3 フレーム分の中央値で安定化します。
    * @param {{cp:number|null,hp:number|null,dust:number|null}} next
    * @param {{cp:number[],hp:number[],dust:number[]}} buffer
    * @returns {{cp:number|null,hp:number|null,dust:number|null}|null}
    */
-  function stabilize(next, buffer) {
+  function stabilize(next, buffer, previous) {
+    const prev = previous ?? { cp: null, hp: null, dust: null };
     const out = { cp: null, hp: null, dust: null };
-    const updater = (key) => {
+    let hasUpdate = false;
+
+    for (const key of STAT_KEYS) {
+      const config = STAT_STABILIZE_CONFIG[key];
+      const queue = buffer[key];
       const value = next[key];
-      if (typeof value === 'number' && !Number.isNaN(value)) {
-        buffer[key].push(value);
-        if (buffer[key].length > 3) buffer[key].shift();
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        queue.push(value);
+        if (queue.length > config.buffer) {
+          queue.shift();
+        }
       }
-      if (buffer[key].length === 3) {
-        const sorted = [...buffer[key]].sort((a, b) => a - b);
-        out[key] = sorted[1];
+      if (queue.length < config.minSamples) continue;
+      const median = computeMedian(queue);
+      if (median === null) continue;
+      if (shouldAcceptStat(key, median, prev[key])) {
+        out[key] = median;
+        hasUpdate = true;
       }
-    };
-    updater('cp');
-    updater('hp');
-    updater('dust');
-    if (out.cp !== null || out.hp !== null || out.dust !== null) return out;
-    return null;
+    }
+
+    return hasUpdate ? out : null;
   }
 
   // 直近のサンプルから中央値を用いて揺れを抑える
@@ -2187,11 +2273,11 @@
     };
     let hasUpdate = false;
 
-    ['atk', 'def', 'hp'].forEach((key) => {
+    IV_KINDS.forEach((key) => {
       const sample = next[key];
       if (sample && Number.isFinite(sample.ratio) && Number.isFinite(sample.confidence)) {
         buffer[key].push(sample);
-        if (buffer[key].length > 5) buffer[key].shift();
+        if (buffer[key].length > IV_STABILIZE_CONFIG[key].buffer) buffer[key].shift();
 
         const latestRatio = buffer[key][buffer[key].length - 1].ratio;
         const lastValue = prev[key];
@@ -2233,7 +2319,7 @@
         Math.abs(candidate - lastValue) >= 1 ||
         maxConfidence >= 0.6
       ) {
-        if (result[key] !== candidate) {
+        if (shouldAcceptIv(key, candidate, lastValue)) {
           result[key] = candidate;
           hasUpdate = true;
         }
