@@ -116,6 +116,40 @@
     hpGauge: '#9575cd'
   };
 
+  const PERF_LOG_KEY = 'iv-ocr-perf-log';
+  let perfEnabled = loadPerfLogFlag();
+  let perfCounter = 0;
+
+  const PERF = {
+    measure(label, fn) {
+      if (!perfEnabled) return fn();
+      const tag = buildPerfLabel(label);
+      console.time(tag);
+      try {
+        return fn();
+      } finally {
+        console.timeEnd(tag);
+      }
+    },
+    async measureAsync(label, fn) {
+      if (!perfEnabled) return fn();
+      const tag = buildPerfLabel(label);
+      console.time(tag);
+      try {
+        return await fn();
+      } finally {
+        console.timeEnd(tag);
+      }
+    },
+    setEnabled(value) {
+      perfEnabled = Boolean(value);
+      savePerfLogFlag(perfEnabled);
+    },
+    isEnabled() {
+      return perfEnabled;
+    }
+  };
+
   /** @type {OCRState} */
   const STATE = {
     stream: null,
@@ -998,7 +1032,7 @@
       STATE.draftRect = null;
     }
   });
-  const throttledOcr = throttle(async () => {
+  const throttledOcr = throttle(async () => PERF.measureAsync('ocr-read', async () => {
     if (!STATE.canvasEl) return;
     const next = await readAll(STATE.canvasEl, STATE.roi);
     if (!next) return;
@@ -1009,9 +1043,9 @@
     if (STATE.autoFill) {
       fillTo9db(stable);
     }
-  }, 700);
+  }), 700);
 
-  const throttledIv = throttle(() => {
+  const throttledIv = throttle(() => PERF.measure('iv-read', () => {
     if (!STATE.canvasEl) return;
     const samples = readGauges(STATE.canvasEl, STATE.roi);
     if (!samples) return;
@@ -1024,9 +1058,9 @@
     if (STATE.autoFill) {
       fillIvBars(effective);
     }
-  }, 600);
+  }), 600);
 
-  const throttledName = throttle(async () => {
+  const throttledName = throttle(async () => PERF.measureAsync('name-read', async () => {
     if (!STATE.canvasEl) return;
     const result = await readPokemonName(STATE.canvasEl, STATE.roi, STATE.lastName);
     if (!result) {
@@ -1052,22 +1086,24 @@
     }
     STATE.lastName = matched;
     handleManualNameScreenChange();
-  }, 1500);
+  }), 1500);
 
   async function loop() {
     if (!STATE.running || !STATE.videoEl || !STATE.ctx || !STATE.canvasEl) return;
-    const { videoEl, ctx, canvasEl } = STATE;
+    PERF.measure('frame', () => {
+      const { videoEl, ctx, canvasEl } = STATE;
 
-    adjustCanvasResolution();
+      adjustCanvasResolution();
 
-    if (videoEl.readyState >= 2) {
-      ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
-      drawROIs(ctx, canvasEl, STATE.roi, STATE.calibTarget, STATE.draftRect);
-      throttledOcr();
-      throttledIv();
-      throttledName();
-    }
-    STATE.loopId = requestAnimationFrame(loop);
+      if (videoEl.readyState >= 2) {
+        ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+        drawROIs(ctx, canvasEl, STATE.roi, STATE.calibTarget, STATE.draftRect);
+        throttledOcr();
+        throttledIv();
+        throttledName();
+      }
+      STATE.loopId = requestAnimationFrame(loop);
+    });
   }
 
   function renderValues(values) {
@@ -2938,6 +2974,57 @@
     }
     return null;
   }
+
+  function loadPerfLogFlag() {
+    try {
+      return localStorage.getItem(PERF_LOG_KEY) === '1';
+    } catch (error) {
+      console.warn('[IV OCR] PERF flag load failed:', error);
+      return false;
+    }
+  }
+
+  function savePerfLogFlag(value) {
+    try {
+      localStorage.setItem(PERF_LOG_KEY, value ? '1' : '0');
+    } catch (error) {
+      console.warn('[IV OCR] PERF flag save failed:', error);
+    }
+  }
+
+  function buildPerfLabel(label) {
+    perfCounter = (perfCounter + 1) % 1048576; // wrap to avoid overly long suffix
+    return `[IV OCR] ${label}#${perfCounter.toString(16)}`;
+  }
+
+  function exposePerfToggle() {
+    try {
+      const host = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+      if (!host) return;
+      host.ivocrPerfLog = {
+        enable() {
+          PERF.setEnabled(true);
+          console.info('[IV OCR] Performance logging enabled');
+        },
+        disable() {
+          PERF.setEnabled(false);
+          console.info('[IV OCR] Performance logging disabled');
+        },
+        toggle() {
+          PERF.setEnabled(!PERF.isEnabled());
+          console.info('[IV OCR] Performance logging toggled ->', PERF.isEnabled());
+        },
+        status() {
+          console.info('[IV OCR] Performance logging status ->', PERF.isEnabled());
+          return PERF.isEnabled();
+        }
+      };
+    } catch (error) {
+      console.warn('[IV OCR] PERF toggle exposure failed:', error);
+    }
+  }
+
+  exposePerfToggle();
 
   /**
    * Tampermonkey サンドボックスからでも実ページの window を取得する
