@@ -7,6 +7,8 @@ const LEAGUE_CAPS = {
   master: Infinity,
 } as const;
 
+type League = keyof typeof LEAGUE_CAPS;
+
 /** CP 計算 (公式) */
 export function calcCp(
   baseAtk: number, baseDef: number, baseSta: number,
@@ -49,50 +51,90 @@ function findMaxLevel(
   pokemon: Pokemon, ivAtk: number, ivDef: number, ivSta: number,
   cpCap: number,
 ): { level: number; cp: number; sp: number } | null {
-  let bestLevel = 0;
-  let bestCp = 0;
-  let bestSp = 0;
+  const { baseAtk, baseDef, baseSta } = pokemon;
+
+  // マスターリーグ: 常に最大レベル
+  if (cpCap === Infinity) {
+    const idx = CPM_TABLE.length - 1;
+    const cpm = CPM_TABLE[idx];
+    return {
+      level: indexToLevel(idx),
+      cp: calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
+      sp: statProduct(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
+    };
+  }
+
   for (let idx = CPM_TABLE.length - 1; idx >= 0; idx--) {
     const cpm = CPM_TABLE[idx];
-    const cp = calcCp(pokemon.baseAtk, pokemon.baseDef, pokemon.baseSta, ivAtk, ivDef, ivSta, cpm);
+    const cp = calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm);
     if (cp <= cpCap) {
-      bestLevel = indexToLevel(idx);
-      bestCp = cp;
-      bestSp = statProduct(pokemon.baseAtk, pokemon.baseDef, pokemon.baseSta, ivAtk, ivDef, ivSta, cpm);
-      break;
+      return {
+        level: indexToLevel(idx),
+        cp,
+        sp: statProduct(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
+      };
     }
   }
-  if (bestLevel === 0) return null;
-  return { level: bestLevel, cp: bestCp, sp: bestSp };
+  return null;
+}
+
+// --- リーグランキングキャッシュ ---
+// 同一ポケモンなら全4096通りのランキングは不変 → 1回だけ計算してキャッシュ
+let _rankCacheId = -1;
+let _rankCache: Record<League, number[]> | null = null;
+
+function getOrBuildLeagueTables(pokemon: Pokemon): Record<League, number[]> {
+  if (_rankCacheId === pokemon.id && _rankCache) return _rankCache;
+
+  const tables = {} as Record<League, number[]>;
+  for (const league of ['great', 'ultra', 'master'] as const) {
+    const cpCap = LEAGUE_CAPS[league];
+    const sps: number[] = [];
+    for (let a = 0; a <= 15; a++) {
+      for (let d = 0; d <= 15; d++) {
+        for (let s = 0; s <= 15; s++) {
+          const entry = findMaxLevel(pokemon, a, d, s, cpCap);
+          if (entry) sps.push(entry.sp);
+        }
+      }
+    }
+    sps.sort((a, b) => b - a);
+    tables[league] = sps;
+  }
+
+  _rankCacheId = pokemon.id;
+  _rankCache = tables;
+  return tables;
+}
+
+/** 降順ソート済み配列から順位を二分探索で求める */
+function findRank(sortedDesc: number[], target: number): number {
+  let lo = 0;
+  let hi = sortedDesc.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sortedDesc[mid] > target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo + 1;
 }
 
 /** リーグランクを計算 */
 function calcLeagueRanks(
   pokemon: Pokemon, ivAtk: number, ivDef: number, ivSta: number,
+  tables: Record<League, number[]>,
 ): IvResult['leagues'] {
   const result: IvResult['leagues'] = { great: null, ultra: null, master: null };
 
   for (const league of ['great', 'ultra', 'master'] as const) {
-    const cpCap = LEAGUE_CAPS[league];
-    const me = findMaxLevel(pokemon, ivAtk, ivDef, ivSta, cpCap);
+    const me = findMaxLevel(pokemon, ivAtk, ivDef, ivSta, LEAGUE_CAPS[league]);
     if (!me) continue;
 
-    // 全 IV 組み合わせ (4096通り) の stat product を計算してランク付け
-    const allSps: number[] = [];
-    for (let a = 0; a <= 15; a++) {
-      for (let d = 0; d <= 15; d++) {
-        for (let s = 0; s <= 15; s++) {
-          const entry = findMaxLevel(pokemon, a, d, s, cpCap);
-          if (entry) allSps.push(entry.sp);
-        }
-      }
-    }
-    allSps.sort((a, b) => b - a);
-    const bestSp = allSps[0] ?? 1;
-    const rank = allSps.findIndex((sp) => sp <= me.sp) + 1;
+    const sorted = tables[league];
+    const bestSp = sorted[0] ?? 1;
 
     result[league] = {
-      rank,
+      rank: findRank(sorted, me.sp),
       maxCp: me.cp,
       maxLevel: me.level,
       statProduct: me.sp,
@@ -150,11 +192,19 @@ export function calculateAllIvCombinations(
     }
   }
 
-  // 結果が少ない場合のみリーグランクを計算 (重い処理なので)
-  if (results.length <= 50) {
-    for (const r of results) {
-      r.leagues = calcLeagueRanks(pokemon, r.atk, r.def, r.sta);
+  // リーグランクテーブルを1回だけ構築 (同一ポケモンならキャッシュヒット)
+  const tables = getOrBuildLeagueTables(pokemon);
+
+  // 同じIV組み合わせ (異なるレベル) は同じリーグランク → 重複計算を排除
+  const ivRankCache = new Map<number, IvResult['leagues']>();
+  for (const r of results) {
+    const key = r.atk * 256 + r.def * 16 + r.sta;
+    let cached = ivRankCache.get(key);
+    if (!cached) {
+      cached = calcLeagueRanks(pokemon, r.atk, r.def, r.sta, tables);
+      ivRankCache.set(key, cached);
     }
+    r.leagues = cached;
   }
 
   // IV% 降順 → レベル降順でソート
