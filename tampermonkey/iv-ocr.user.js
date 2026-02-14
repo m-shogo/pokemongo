@@ -3449,7 +3449,8 @@
       .replace(/口/g, 'ロ')   // 漢字「口」→ カタカナ「ロ」
       .replace(/二/g, 'ニ')   // 漢字「二」→ カタカナ「ニ」
       .replace(/工/g, 'エ')   // 漢字「工」→ カタカナ「エ」
-      .replace(/卜/g, 'ト');  // 漢字「卜」→ カタカナ「ト」
+      .replace(/卜/g, 'ト')  // 漢字「卜」→ カタカナ「ト」
+      .replace(/一/g, 'ー'); // 漢数字「一」→ 長音「ー」
     const hira = katakanaToHiragana(normalized);
     const kata = hiraganaToKatakana(hira);
     let cleaned = kata.replace(/[^ァ-ヶー]/g, '');
