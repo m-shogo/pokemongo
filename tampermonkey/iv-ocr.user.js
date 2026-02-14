@@ -167,7 +167,7 @@
   };
   const PREPROCESS_PROFILES = {
     digits: { enabled: true, brightness: 1.15, contrast: 1.25, threshold: 150 },
-    name: { enabled: true, brightness: 1.05, contrast: 1.15, threshold: 140 },
+    name: { enabled: true, brightness: 1.2, contrast: 1.4, threshold: 135 },
   };
   const OCR_RESULT_HISTORY_LIMIT = 40;
   const OCR_SUCCESS_MIN_CONFIDENCE = 45;
@@ -1234,7 +1234,7 @@
         throttledIv();
         throttledName();
       }
-      STATE.loopId = requestAnimationFrame(loop);
+      STATE.loopId = setTimeout(loop, 33); // ~30fps で十分（60fps は不要）
     });
   }
 
@@ -1729,7 +1729,7 @@
   }
 
   async function stopCapture() {
-    if (STATE.loopId) cancelAnimationFrame(STATE.loopId);
+    if (STATE.loopId) clearTimeout(STATE.loopId);
     STATE.loopId = null;
     if (STATE.stream) {
       STATE.stream.getTracks().forEach((track) => track.stop());
@@ -2819,7 +2819,16 @@
     const base = sorted[Math.floor(sorted.length * 0.1)] ?? 0;
     const peak = sorted[Math.floor(sorted.length * 0.9)] ?? 0;
     const dynamicRange = peak - base;
-    if (!Number.isFinite(dynamicRange) || dynamicRange < 4) return null;
+
+    // IV=0 検出: バー全体に暖色が見られない場合は空バー（IV=0）と判定
+    if (!Number.isFinite(dynamicRange) || dynamicRange < 4) {
+      // 全ピクセルの平均スコアも低ければ確信度を上げる
+      const avgScore = columnScore.reduce((s, v) => s + v, 0) / (columnScore.length || 1);
+      if (avgScore < 8) {
+        return { ratio: 0, confidence: clamp(0.7 - avgScore * 0.05, 0.3, 0.7) };
+      }
+      return null;
+    }
     const threshold = base + dynamicRange * 0.25;
 
     let filled = -1;
@@ -2843,7 +2852,14 @@
       }
     }
 
-    if (filled < 0) return null;
+    // IV=0 検出: 閾値を超えたピクセルが見つからない場合
+    if (filled < 0) {
+      const avgScore = columnScore.reduce((s, v) => s + v, 0) / (columnScore.length || 1);
+      if (avgScore < threshold * 0.5) {
+        return { ratio: 0, confidence: clamp(0.5 - avgScore * 0.02, 0.25, 0.5) };
+      }
+      return null;
+    }
     let ratio = (filled + 1) / width;
 
     const rightTail = smoothed.slice(Math.max(0, width - Math.floor(width * 0.08)));
@@ -3305,7 +3321,7 @@
     try {
       const { text: rawText, confidence: nameConfidence } = await recognizeViaWorker(canvas, {
         kind: 'name',
-        whitelist: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンヴァィゥェォッャュョー',
+        whitelist: 'アイウエオカキクケコガギグゲゴサシスセソザジズゼゾタチツテトダヂヅデドナニヌネノハヒフヘホバビブベボパピプペポマミムメモヤユヨラリルレロワヲンヴァィゥェォッャュョー',
         params: { psm: 7 },
       });
       const normalized = normalizeKatakana(rawText);
@@ -3425,10 +3441,18 @@
 
   function normalizeKatakana(text) {
     if (!text) return '';
-    const normalized = text.normalize('NFKC').replace(/[\r\n\s]+/g, '');
+    let normalized = text.normalize('NFKC').replace(/[\r\n\s]+/g, '');
+    // OCR でよくある誤認識パターンを補正
+    normalized = normalized
+      .replace(/力/g, 'カ')   // 漢字「力」→ カタカナ「カ」
+      .replace(/夕/g, 'タ')   // 漢字「夕」→ カタカナ「タ」
+      .replace(/口/g, 'ロ')   // 漢字「口」→ カタカナ「ロ」
+      .replace(/二/g, 'ニ')   // 漢字「二」→ カタカナ「ニ」
+      .replace(/工/g, 'エ')   // 漢字「工」→ カタカナ「エ」
+      .replace(/卜/g, 'ト');  // 漢字「卜」→ カタカナ「ト」
     const hira = katakanaToHiragana(normalized);
     const kata = hiraganaToKatakana(hira);
-    let cleaned = kata.replace(/[^ァ-ヴー゛゜ヵヶ]/g, '');
+    let cleaned = kata.replace(/[^ァ-ヶー]/g, '');
     // 先頭に長音「ー」や濁点記号だけが残るケースを除去し、実際のカタカナ文字から開始する
     while (cleaned.length && !/[ァ-ヴヵヶ]/.test(cleaned[0])) {
       cleaned = cleaned.slice(1);
