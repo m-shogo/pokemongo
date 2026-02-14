@@ -76,7 +76,7 @@ export function ResultPanel({ results, pokemon, league, onLeagueChange, onReset 
       {/* 結果なし */}
       {results.length === 0 && (
         <div className="empty-state">
-          <div className="empty-icon">?</div>
+          <div className="empty-icon">\uD83D\uDD0D</div>
           <p>入力条件に合うIV組み合わせがありません</p>
           <p style={{ marginTop: 4, fontSize: '0.75rem' }}>CP・HP・すなを確認してください</p>
         </div>

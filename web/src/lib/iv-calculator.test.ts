@@ -61,6 +61,7 @@ const input100: IvInput = {
   sta: 15,
   lucky: false,
   purified: false,
+  shadow: false,
 };
 const result100 = calculateAllIvCombinations(mewtwo, input100);
 assert(result100.length >= 1, `ミュウツー 100% CP4724: ${result100.length} 件の結果`);
@@ -79,6 +80,7 @@ const luckyInput: IvInput = {
   sta: null,
   lucky: true,
   purified: false,
+  shadow: false,
 };
 const luckyResults = calculateAllIvCombinations(pikachu, luckyInput);
 const allAbove12 = luckyResults.every((r) => r.atk >= 12 && r.def >= 12 && r.sta >= 12);
@@ -98,6 +100,7 @@ const rankInput: IvInput = {
   sta: 14,
   lucky: false,
   purified: false,
+  shadow: false,
 };
 const rankResults = calculateAllIvCombinations(pikachu, rankInput);
 const withLeague = rankResults.filter((r) => r.leagues.great !== null);

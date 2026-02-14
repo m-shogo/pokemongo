@@ -12,19 +12,19 @@ const dustOptions = DUST_TO_LEVEL.map((d) => d.dust);
 
 /** 入手方法プリセット */
 const CATCH_SOURCES = [
-  { label: 'レイド', icon: '!', dust: 2500, minIv: 10 },
-  { label: 'タマゴ', icon: '?', dust: null, minIv: 10 },
-  { label: 'リサーチ', icon: '*', dust: 1000, minIv: 10 },
-  { label: '野生', icon: '~', dust: null, minIv: 0 },
+  { key: 'raid',     label: 'レイド',     icon: '\u2694\uFE0F', dust: 2500, minIv: 10 },
+  { key: 'egg',      label: 'タマゴ',     icon: '\uD83E\uDD5A', dust: null,  minIv: 10 },
+  { key: 'research', label: 'リサーチ',   icon: '\uD83D\uDCDD', dust: 1000, minIv: 10 },
+  { key: 'wild',     label: '野生',       icon: '\uD83C\uDF3F', dust: null,  minIv: 0 },
 ] as const;
 
 /** チームリーダー評価 (星) */
 const APPRAISALS = [
-  { stars: 0, label: '0', min: 0, max: 22 },
-  { stars: 1, label: '1', min: 23, max: 29 },
-  { stars: 2, label: '2', min: 30, max: 36 },
-  { stars: 3, label: '3', min: 37, max: 44 },
-  { stars: 4, label: '4', min: 45, max: 45 },
+  { stars: 0, label: '\u2015',   min: 0,  max: 22 },
+  { stars: 1, label: '\u2605',   min: 23, max: 29 },
+  { stars: 2, label: '\u2605\u2605',  min: 30, max: 36 },
+  { stars: 3, label: '\u2605\u2605\u2605', min: 37, max: 44 },
+  { stars: 4, label: '\u2605\u2605\u2605\u2605', min: 45, max: 45 },
 ] as const;
 
 export function IvInput({ value, onChange, onCalculate, canCalculate }: Props) {
@@ -35,6 +35,7 @@ export function IvInput({ value, onChange, onCalculate, canCalculate }: Props) {
       dust: source.dust ?? value.dust,
       lucky: false,
       purified: false,
+      shadow: false,
     });
   };
 
@@ -44,6 +45,7 @@ export function IvInput({ value, onChange, onCalculate, canCalculate }: Props) {
     } else if (appraisal.stars === 0) {
       set({ atk: null, def: null, sta: null });
     }
+    // 星1-3: IV個別値はクリアして手動入力に委ねる（合計値の範囲はバリデーションで使える）
   };
 
   const ivTotal = (value.atk ?? 0) + (value.def ?? 0) + (value.sta ?? 0);
@@ -61,7 +63,7 @@ export function IvInput({ value, onChange, onCalculate, canCalculate }: Props) {
         <div className="source-grid">
           {CATCH_SOURCES.map((s) => (
             <button
-              key={s.label}
+              key={s.key}
               className="source-btn"
               onClick={() => handleSource(s)}
             >
@@ -120,9 +122,9 @@ export function IvInput({ value, onChange, onCalculate, canCalculate }: Props) {
               key={a.stars}
               className={`chip${currentStars === a.stars ? ' active' : ''}`}
               onClick={() => handleAppraisal(a)}
-              style={{ flex: 1, justifyContent: 'center' }}
+              style={{ flex: 1, justifyContent: 'center', fontSize: a.stars >= 3 ? '0.65rem' : '0.8rem' }}
             >
-              {a.stars === 0 ? '-' : Array.from({ length: a.stars }, () => '*').join('')}
+              {a.label}
             </button>
           ))}
         </div>
@@ -135,29 +137,32 @@ export function IvInput({ value, onChange, onCalculate, canCalculate }: Props) {
         </div>
       </div>
 
-      {/* オプション */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          className={`chip${value.lucky ? ' active' : ''}`}
-          onClick={() => set({ lucky: !value.lucky })}
-          style={{ flex: 1, justifyContent: 'center' }}
-        >
-          キラ
-        </button>
-        <button
-          className={`chip${value.purified ? ' active' : ''}`}
-          onClick={() => set({ purified: !value.purified })}
-          style={{ flex: 1, justifyContent: 'center' }}
-        >
-          リトレーン
-        </button>
-        <button
-          className={`chip${false ? ' active' : ''}`}
-          onClick={() => set({ lucky: false, purified: false })}
-          style={{ flex: 1, justifyContent: 'center' }}
-        >
-          シャドウ
-        </button>
+      {/* タイプ選択 */}
+      <div>
+        <div className="section-label">TYPE</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className={`chip${value.lucky ? ' active' : ''}`}
+            onClick={() => set({ lucky: !value.lucky, purified: false, shadow: false })}
+            style={{ flex: 1, justifyContent: 'center' }}
+          >
+            \u2728 キラ
+          </button>
+          <button
+            className={`chip${value.purified ? ' active' : ''}`}
+            onClick={() => set({ purified: !value.purified, lucky: false, shadow: false })}
+            style={{ flex: 1, justifyContent: 'center' }}
+          >
+            \uD83D\uDC9C リトレーン
+          </button>
+          <button
+            className={`chip${value.shadow ? ' active' : ''}`}
+            onClick={() => set({ shadow: !value.shadow, lucky: false, purified: false })}
+            style={{ flex: 1, justifyContent: 'center' }}
+          >
+            \uD83D\uDDA4 シャドウ
+          </button>
+        </div>
       </div>
 
       {/* 計算ボタン */}

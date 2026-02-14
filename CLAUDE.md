@@ -12,8 +12,10 @@ Pokemon GO の個体値(IV)を OCR で自動読み取りし、9db の IV 計算�
 ## ファイル構成
 - `tampermonkey/iv-ocr.user.js` - メインスクリプト本体
 - `tampermonkey/ocr-worker.js` - OCR 処理用 Web Worker
-- `docs/iv-ocr-tool.md` - 詳細ドキュメント
-- `docs/ocr-performance-improvement.md` - OCR パフォーマンス改善メモ
+- `tampermonkey/docs/iv-ocr-tool.md` - 詳細ドキュメント
+- `tampermonkey/docs/ocr-performance-improvement.md` - OCR パフォーマンス改善メモ
+- `web/` - React IV チェッカーアプリ (Phase 2)
+- `docs/` - GitHub Pages 用ビルド出力
 
 ## 動作の仕組み
 1. iPhone の画面を AirPlay / キャプチャカードで PC に映す

@@ -108,7 +108,7 @@ export function calculateAllIvCombinations(
   pokemon: Pokemon, input: IvInput,
 ): IvResult[] {
   const { min: minLevel, max: maxLevel } = getLevelRange(input.dust);
-  const ivMin = input.lucky ? 12 : 0;
+  const ivMin = input.lucky ? 12 : input.purified ? 1 : 0;
   const results: IvResult[] = [];
 
   // IV 範囲

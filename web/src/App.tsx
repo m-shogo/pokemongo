@@ -20,6 +20,7 @@ export function App() {
     sta: null,
     lucky: false,
     purified: false,
+    shadow: false,
   });
   const [results, setResults] = useState<IvResult[]>([]);
   const [calculated, setCalculated] = useState(false);
@@ -38,7 +39,7 @@ export function App() {
     setIvInput({
       cp: null, hp: null, dust: null,
       atk: null, def: null, sta: null,
-      lucky: false, purified: false,
+      lucky: false, purified: false, shadow: false,
     });
     setResults([]);
     setCalculated(false);

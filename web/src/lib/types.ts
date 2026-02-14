@@ -17,6 +17,7 @@ export interface IvInput {
   sta: number | null;   // 0-15
   lucky: boolean;       // キラポケモン (IV下限 12)
   purified: boolean;    // リトレーンポケモン
+  shadow: boolean;      // シャドウポケモン
 }
 
 /** IV 計算結果 1件 */
