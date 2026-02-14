@@ -1,5 +1,5 @@
 import { CPM_TABLE, DUST_TO_LEVEL, levelToIndex, indexToLevel } from '../data/cpm';
-import type { Pokemon, IvInput, IvResult, LeagueRank } from './types';
+import type { Pokemon, IvInput, IvResult } from './types';
 
 const LEAGUE_CAPS = {
   great: 1500,
