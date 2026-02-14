@@ -6,11 +6,8 @@ import { calculateAllIvCombinations } from './lib/iv-calculator';
 import { POKEMON_DATA } from './data/pokemon';
 import type { IvInput as IvInputType, IvResult } from './lib/types';
 
-type League = 'great' | 'ultra' | 'master';
-
 export function App() {
   const [pokemonId, setPokemonId] = useState<number | null>(null);
-  const [league, setLeague] = useState<League>('great');
   const [ivInput, setIvInput] = useState<IvInputType>({
     cp: null,
     hp: null,
@@ -74,8 +71,6 @@ export function App() {
           <ResultPanel
             results={results}
             pokemon={pokemon}
-            league={league}
-            onLeagueChange={setLeague}
             onReset={handleReset}
           />
         )}

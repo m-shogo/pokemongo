@@ -372,6 +372,51 @@ select.field-input {
   cursor: pointer;
 }
 
+/* --- 3リーグ同時表示 --- */
+.league-rank-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+.league-rank-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+}
+.league-rank-header {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.league-rank-header-great { color: var(--league-great); }
+.league-rank-header-ultra { color: var(--league-ultra); }
+.league-rank-header-master { color: var(--league-master); }
+.league-rank-number {
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.league-rank-pct {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+.league-rank-detail {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.league-rank-na {
+  font-size: 1rem;
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
 /* --- アニメーション --- */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
