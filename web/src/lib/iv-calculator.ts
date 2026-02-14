@@ -1,5 +1,6 @@
 import { CPM_TABLE, DUST_TO_LEVEL, levelToIndex, indexToLevel } from '../data/cpm';
-import type { Pokemon, IvInput, IvResult, LeagueKey } from './types';
+import { getEvolutionFamily } from '../data/evolution';
+import type { Pokemon, IvInput, IvResult, LeagueKey, EvolutionRankEntry, EvolutionLeagueInfo } from './types';
 
 /** リーグ設定 */
 interface LeagueConfig {
@@ -92,13 +93,12 @@ function findMaxLevel(
   return null;
 }
 
-// --- リーグランキングキャッシュ ---
-// 同一ポケモンなら全4096通りのランキングは不変 → 1回だけ計算してキャッシュ
-let _rankCacheId = -1;
-let _rankCache: Record<LeagueKey, number[]> | null = null;
+// --- リーグランキングキャッシュ (Map ベース: 複数ポケモン対応) ---
+const _rankCacheMap = new Map<number, Record<LeagueKey, number[]>>();
 
 function getOrBuildLeagueTables(pokemon: Pokemon): Record<LeagueKey, number[]> {
-  if (_rankCacheId === pokemon.id && _rankCache) return _rankCache;
+  const cached = _rankCacheMap.get(pokemon.id);
+  if (cached) return cached;
 
   const tables = {} as Record<LeagueKey, number[]>;
   for (const league of LEAGUE_KEYS) {
@@ -116,8 +116,7 @@ function getOrBuildLeagueTables(pokemon: Pokemon): Record<LeagueKey, number[]> {
     tables[league] = sps;
   }
 
-  _rankCacheId = pokemon.id;
-  _rankCache = tables;
+  _rankCacheMap.set(pokemon.id, tables);
   return tables;
 }
 
@@ -235,4 +234,67 @@ function range(min: number, max: number): number[] {
   const arr: number[] = [];
   for (let i = min; i <= max; i++) arr.push(i);
   return arr;
+}
+
+/**
+ * 進化ランキング計算:
+ * 選択ポケモンのIVを指定 → 進化ファミリー全形態のリーグ別順位を返す
+ * 前CP = 選択ポケモンの同レベルでのCP
+ */
+export function calculateEvolutionRankings(
+  selectedPokemon: Pokemon,
+  ivAtk: number,
+  ivDef: number,
+  ivSta: number,
+): EvolutionRankEntry[] {
+  const family = getEvolutionFamily(selectedPokemon.id);
+  if (!family) {
+    // ファミリーが見つからない場合、選択ポケモン単体で計算
+    return [buildSingleRankEntry(selectedPokemon, selectedPokemon, ivAtk, ivDef, ivSta)];
+  }
+
+  return family.map((form) =>
+    buildSingleRankEntry(form, selectedPokemon, ivAtk, ivDef, ivSta)
+  );
+}
+
+/** 1形態分のランキングを構築 */
+function buildSingleRankEntry(
+  form: Pokemon,
+  selectedPokemon: Pokemon,
+  ivAtk: number,
+  ivDef: number,
+  ivSta: number,
+): EvolutionRankEntry {
+  const tables = getOrBuildLeagueTables(form);
+  const leagues = {} as Record<LeagueKey, EvolutionLeagueInfo | null>;
+
+  for (const league of LEAGUE_KEYS) {
+    const config = LEAGUE_CONFIGS[league];
+    const me = findMaxLevel(form, ivAtk, ivDef, ivSta, config.cpCap, config.maxLevel);
+    if (!me) {
+      leagues[league] = null;
+      continue;
+    }
+
+    const sorted = tables[league];
+    const idx = levelToIndex(me.level);
+    const cpm = CPM_TABLE[idx];
+
+    // 前CP: 選択ポケモンの同レベルでのCP
+    const preCp = calcCp(
+      selectedPokemon.baseAtk, selectedPokemon.baseDef, selectedPokemon.baseSta,
+      ivAtk, ivDef, ivSta, cpm,
+    );
+
+    leagues[league] = {
+      rank: findRank(sorted, me.sp),
+      cp: me.cp,
+      level: me.level,
+      scp: calcScp(me.sp),
+      preCp,
+    };
+  }
+
+  return { pokemon: form, leagues };
 }

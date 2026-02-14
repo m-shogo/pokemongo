@@ -47,6 +47,21 @@ export interface LeagueRank {
   percentOfBest: number; // 1位の stat product に対する割合 (%)
 }
 
+/** 進化ランキング: リーグ別情報 */
+export interface EvolutionLeagueInfo {
+  rank: number;
+  cp: number;
+  level: number;
+  scp: number;
+  preCp: number;        // 前CP: 選択ポケモンの同レベルでのCP
+}
+
+/** 進化ランキング: 1形態分 */
+export interface EvolutionRankEntry {
+  pokemon: Pokemon;
+  leagues: Record<LeagueKey, EvolutionLeagueInfo | null>;
+}
+
 /** ほしのすな → レベル範囲テーブル */
 export interface DustLevel {
   dust: number;

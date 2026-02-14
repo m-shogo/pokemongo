@@ -431,6 +431,86 @@ select.field-input {
   padding: 8px 0;
 }
 
+/* --- 進化ランキング表示 --- */
+.evo-league-header {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 0 0 0 0;
+}
+.evo-league-label {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 6px 0;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.15);
+}
+.evo-form-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 10px;
+  box-shadow: var(--shadow);
+}
+.evo-form-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  padding-left: 2px;
+}
+.evo-league-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.evo-league-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-sm);
+}
+.evo-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.evo-rank {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.evo-cp {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.evo-scp {
+  font-size: 0.58rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.evo-pre-cp {
+  font-size: 0.52rem;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+.evo-divider {
+  width: 50%;
+  height: 1px;
+  background: var(--surface-border);
+  margin: 3px 0;
+}
+.evo-na {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
 /* --- アニメーション --- */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
