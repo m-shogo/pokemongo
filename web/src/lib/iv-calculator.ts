@@ -60,7 +60,7 @@ function getLevelRange(dust: number | null): { min: number; max: number } {
   return { min: entry.minLevel, max: entry.maxLevel };
 }
 
-/** あるIV組み合わせで、CP上限以下の最大レベルを求める */
+/** あるIV組み合わせで、CP上限以下の最大レベルを求める (二分探索) */
 function findMaxLevel(
   pokemon: Pokemon, ivAtk: number, ivDef: number, ivSta: number,
   cpCap: number, maxLevel: number,
@@ -78,19 +78,40 @@ function findMaxLevel(
     };
   }
 
-  // CP上限あり: 上限以下の最大レベルを探索
-  for (let idx = maxIdx; idx >= 0; idx--) {
-    const cpm = CPM_TABLE[idx];
-    const cp = calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm);
-    if (cp <= cpCap) {
-      return {
-        level: indexToLevel(idx),
-        cp,
-        sp: statProduct(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
-      };
+  // 最大レベルでもCP以下なら即答
+  const cpAtMax = calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, CPM_TABLE[maxIdx]);
+  if (cpAtMax <= cpCap) {
+    return {
+      level: indexToLevel(maxIdx),
+      cp: cpAtMax,
+      sp: statProduct(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, CPM_TABLE[maxIdx]),
+    };
+  }
+
+  // Lv1でもCP超過なら不可能
+  if (calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, CPM_TABLE[0]) > cpCap) {
+    return null;
+  }
+
+  // 二分探索: CP <= cpCap を満たす最大インデックスを探す
+  // CPはレベルに対して単調非減少
+  let lo = 0;
+  let hi = maxIdx;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, CPM_TABLE[mid]) <= cpCap) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
     }
   }
-  return null;
+
+  const cpm = CPM_TABLE[lo];
+  return {
+    level: indexToLevel(lo),
+    cp: calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
+    sp: statProduct(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
+  };
 }
 
 // --- リーグランキングキャッシュ (Map ベース: 複数ポケモン対応) ---

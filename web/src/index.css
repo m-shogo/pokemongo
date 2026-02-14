@@ -431,6 +431,15 @@ select.field-input {
   padding: 8px 0;
 }
 
+/* --- 計算中表示 --- */
+.loading-state {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 /* --- 進化ランキング表示 --- */
 .evo-league-header {
   display: grid;

@@ -23,6 +23,7 @@ export function App() {
   const [results, setResults] = useState<IvResult[]>([]);
   const [evoRankings, setEvoRankings] = useState<EvolutionRankEntry[]>([]);
   const [calculated, setCalculated] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // IV が全て指定されているか
   const allIvsSpecified = ivInput.atk !== null && ivInput.def !== null && ivInput.sta !== null;
@@ -32,20 +33,25 @@ export function App() {
     const pokemon = POKEMON_DATA.find((p) => p.id === pokemonId);
     if (!pokemon) return;
 
-    if (allIvsSpecified) {
-      // IV 全指定 → 進化ランキング表示
-      const rankings = calculateEvolutionRankings(
-        pokemon, ivInput.atk!, ivInput.def!, ivInput.sta!,
-      );
-      setEvoRankings(rankings);
-      setResults([]);
-    } else {
-      // IV 部分指定 → 従来の IV 候補一覧
-      const combos = calculateAllIvCombinations(pokemon, ivInput);
-      setResults(combos);
-      setEvoRankings([]);
-    }
-    setCalculated(true);
+    setLoading(true);
+    setCalculated(false);
+
+    // setTimeout で UI に計算中表示を描画させてから重い計算を実行
+    setTimeout(() => {
+      if (allIvsSpecified) {
+        const rankings = calculateEvolutionRankings(
+          pokemon, ivInput.atk!, ivInput.def!, ivInput.sta!,
+        );
+        setEvoRankings(rankings);
+        setResults([]);
+      } else {
+        const combos = calculateAllIvCombinations(pokemon, ivInput);
+        setResults(combos);
+        setEvoRankings([]);
+      }
+      setCalculated(true);
+      setLoading(false);
+    }, 10);
   }, [pokemonId, ivInput, allIvsSpecified]);
 
   const handleReset = useCallback(() => {
@@ -82,8 +88,15 @@ export function App() {
           value={ivInput}
           onChange={(v) => { setIvInput(v); setCalculated(false); }}
           onCalculate={handleCalculate}
-          canCalculate={pokemonId !== null}
+          canCalculate={pokemonId !== null && !loading}
         />
+
+        {/* 計算中表示 */}
+        {loading && (
+          <div className="loading-state">
+            計算中...
+          </div>
+        )}
 
         {calculated && evoRankings.length > 0 && pokemon && (
           <EvolutionRankPanel
