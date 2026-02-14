@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import type { Pokemon } from '../lib/types';
 
 interface Props {
@@ -10,72 +10,69 @@ interface Props {
 export function PokemonSelector({ pokemon, selectedId, onSelect }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(() => {
     if (!query) return pokemon;
     const q = query.toLowerCase();
-    return pokemon.filter((p) => p.name.toLowerCase().includes(q) || String(p.id).includes(q));
+    return pokemon.filter((p) =>
+      p.name.toLowerCase().includes(q) || String(p.id).includes(q),
+    );
   }, [pokemon, query]);
 
   const selected = selectedId !== null ? pokemon.find((p) => p.id === selectedId) : null;
 
   return (
-    <div style={{ marginBottom: 12, position: 'relative' }}>
-      <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>ポケモン</label>
+    <div className="card" style={{ position: 'relative' }}>
+      <div className="section-label">POKEMON</div>
       <input
+        ref={inputRef}
         type="text"
-        value={open ? query : selected?.name ?? ''}
-        placeholder="名前で検索..."
+        className="field-input"
+        value={open ? query : selected ? `#${selected.id} ${selected.name}` : ''}
+        placeholder="名前 or 図鑑No で検索..."
         onFocus={() => { setOpen(true); setQuery(''); }}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
         onChange={(e) => setQuery(e.target.value)}
-        style={{
-          display: 'block',
-          width: '100%',
-          padding: '10px 12px',
-          fontSize: '1rem',
-          background: 'var(--surface)',
-          color: 'var(--text)',
-          border: '1px solid var(--accent)',
-          borderRadius: 8,
-          marginTop: 4,
-        }}
       />
+      {selected && !open && (
+        <button
+          onClick={() => { onSelect(null); inputRef.current?.focus(); }}
+          style={{
+            position: 'absolute',
+            right: 24,
+            top: 38,
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-dim)',
+            fontSize: '1rem',
+            cursor: 'pointer',
+            padding: 4,
+          }}
+        >
+          x
+        </button>
+      )}
       {open && (
-        <ul style={{
-          position: 'absolute',
-          top: '100%',
-          left: 0,
-          right: 0,
-          maxHeight: 240,
-          overflow: 'auto',
-          background: 'var(--surface)',
-          border: '1px solid var(--accent)',
-          borderRadius: 8,
-          listStyle: 'none',
-          zIndex: 10,
-          margin: 0,
-          padding: 0,
-        }}>
-          {filtered.slice(0, 30).map((p) => (
-            <li
+        <div className="dropdown fade-in">
+          {filtered.slice(0, 40).map((p) => (
+            <div
               key={p.id}
+              className={`dropdown-item${p.id === selectedId ? ' selected' : ''}`}
               onMouseDown={() => { onSelect(p.id); setOpen(false); }}
-              style={{
-                padding: '8px 12px',
-                cursor: 'pointer',
-                background: p.id === selectedId ? 'var(--accent)' : 'transparent',
-              }}
             >
-              #{p.id} {p.name}
-            </li>
+              <span style={{ color: 'var(--text-dim)', marginRight: 8, fontSize: '0.8rem' }}>
+                #{String(p.id).padStart(3, '0')}
+              </span>
+              {p.name}
+            </div>
           ))}
           {filtered.length === 0 && (
-            <li style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>
+            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
               見つかりません
-            </li>
+            </div>
           )}
-        </ul>
+        </div>
       )}
     </div>
   );
