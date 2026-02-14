@@ -1,0 +1,382 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0b1622;
+  --bg-gradient: linear-gradient(180deg, #0f2033 0%, #0b1622 100%);
+  --surface: #152238;
+  --surface-hover: #1a2d4a;
+  --surface-border: rgba(255, 255, 255, 0.08);
+  --primary: #00d4aa;
+  --primary-glow: rgba(0, 212, 170, 0.2);
+  --danger: #ff4757;
+  --text: #e8edf3;
+  --text-secondary: #8899aa;
+  --text-dim: #556677;
+
+  --league-great: #5b9bd5;
+  --league-great-bg: rgba(91, 155, 213, 0.15);
+  --league-ultra: #f0c040;
+  --league-ultra-bg: rgba(240, 192, 64, 0.15);
+  --league-master: #c084fc;
+  --league-master-bg: rgba(192, 132, 252, 0.15);
+
+  --iv-perfect: #00d4aa;
+  --iv-high: #f0c040;
+  --iv-mid: #5b9bd5;
+  --iv-low: #ff4757;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  background: var(--bg);
+  background-image: var(--bg-gradient);
+  color: var(--text);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 12px 16px 80px;
+}
+
+/* --- 共通ユーティリティ --- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+/* --- ヘッダー --- */
+.app-header {
+  text-align: center;
+  padding: 16px 0 20px;
+}
+.app-header h1 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--primary), #5b9bd5);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.app-header p {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* --- 入力フィールド --- */
+.field-input {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 1rem;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.field-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+.field-input::placeholder {
+  color: var(--text-dim);
+}
+
+/* --- チップボタン --- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 20px;
+  border: 1px solid var(--surface-border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.chip:active {
+  transform: scale(0.96);
+}
+.chip.active {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* --- メインボタン --- */
+.btn-primary {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  font-size: 1rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--primary), #00b894);
+  color: #0b1622;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-primary:active {
+  transform: scale(0.98);
+}
+.btn-primary:disabled {
+  background: #2a3a4a;
+  color: var(--text-dim);
+  cursor: default;
+  transform: none;
+}
+
+/* --- リーグタブ --- */
+.league-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+.league-tab {
+  flex: 1;
+  padding: 10px 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.league-tab.active-great {
+  background: var(--league-great-bg);
+  color: var(--league-great);
+}
+.league-tab.active-ultra {
+  background: var(--league-ultra-bg);
+  color: var(--league-ultra);
+}
+.league-tab.active-master {
+  background: var(--league-master-bg);
+  color: var(--league-master);
+}
+
+/* --- 星評価 --- */
+.stars {
+  display: inline-flex;
+  gap: 2px;
+}
+.star {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+.star.filled {
+  color: var(--iv-high);
+}
+
+/* --- 結果カード --- */
+.result-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 14px;
+  transition: border-color 0.15s;
+}
+.result-card.top-pick {
+  border-color: var(--primary);
+  box-shadow: 0 0 16px var(--primary-glow);
+}
+
+/* --- IV バー --- */
+.iv-bar-track {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.iv-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* --- おすすめバッジ --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 12px;
+  letter-spacing: 0.02em;
+}
+.badge-great {
+  background: var(--league-great-bg);
+  color: var(--league-great);
+}
+.badge-ultra {
+  background: var(--league-ultra-bg);
+  color: var(--league-ultra);
+}
+.badge-master {
+  background: var(--league-master-bg);
+  color: var(--league-master);
+}
+.badge-top {
+  background: rgba(0, 212, 170, 0.15);
+  color: var(--primary);
+}
+.badge-ok {
+  background: rgba(240, 192, 64, 0.15);
+  color: var(--iv-high);
+}
+.badge-nope {
+  background: rgba(255, 71, 87, 0.1);
+  color: var(--iv-low);
+}
+
+/* --- ドロップダウン --- */
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  overscroll-behavior: contain;
+}
+.dropdown-item {
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.dropdown-item:active,
+.dropdown-item.selected {
+  background: var(--surface-hover);
+}
+
+/* --- スライダー --- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--primary-glow);
+}
+
+/* --- 入手方法ボタン --- */
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.source-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.source-btn:active {
+  transform: scale(0.95);
+}
+.source-btn.active {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.source-btn .source-icon {
+  font-size: 1.2rem;
+}
+
+/* --- 空状態 --- */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+}
+.empty-state .empty-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+.empty-state p {
+  font-size: 0.85rem;
+}
+
+/* --- select スタイル --- */
+select.field-input {
+  cursor: pointer;
+}
+
+/* --- アニメーション --- */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in {
+  animation: fadeIn 0.2s ease;
+}
