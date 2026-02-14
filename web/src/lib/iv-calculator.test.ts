@@ -109,6 +109,27 @@ if (withLeague.length > 0) {
   const gl = withLeague[0].leagues.great!;
   assert(gl.rank >= 1 && gl.rank <= 4096, `スーパーリーグ rank=${gl.rank}`);
   assert(gl.percentOfBest > 0 && gl.percentOfBest <= 100, `percentOfBest=${gl.percentOfBest}%`);
+  assert(gl.scp > 0, `SCP=${gl.scp}`);
+
+  // 500リーグ
+  const lt = withLeague[0].leagues.little;
+  assert(lt !== null, 'リトルリーグ(500)ランクが存在');
+  if (lt) {
+    assert(lt.rank >= 1 && lt.rank <= 4096, `リトルリーグ rank=${lt.rank}`);
+    assert(lt.maxCp <= 500, `リトルリーグ CP=${lt.maxCp} <= 500`);
+  }
+
+  // マスターリーグ Lv50/51
+  const ml50 = withLeague[0].leagues.master;
+  const ml51 = withLeague[0].leagues.master51;
+  assert(ml50 !== null, 'マスターリーグ(Lv50)ランクが存在');
+  assert(ml51 !== null, 'マスターリーグ(Lv51)ランクが存在');
+  if (ml50 && ml51) {
+    assert(ml50.maxLevel === 50, `ML Lv50: maxLevel=${ml50.maxLevel}`);
+    assert(ml51.maxLevel === 51, `ML Lv51: maxLevel=${ml51.maxLevel}`);
+    assert(ml51.maxCp >= ml50.maxCp, `ML Lv51 CP >= Lv50 CP`);
+    assert(ml51.scp >= ml50.scp, `ML Lv51 SCP >= Lv50 SCP`);
+  }
 }
 
 // ============================

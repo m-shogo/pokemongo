@@ -1,4 +1,4 @@
-import type { IvResult, Pokemon } from '../lib/types';
+import type { IvResult, Pokemon, LeagueRank } from '../lib/types';
 
 interface Props {
   results: IvResult[];
@@ -6,10 +6,12 @@ interface Props {
   onReset: () => void;
 }
 
-const LEAGUES = [
-  { key: 'great', name: 'スーパー', cp: '1500' },
-  { key: 'ultra', name: 'ハイパー', cp: '2500' },
-  { key: 'master', name: 'マスター', cp: 'MAX' },
+/** 表示用リーグ定義 (500 / SL / HL / ML) */
+const DISPLAY_LEAGUES = [
+  { key: 'little', label: '500', cssKey: 'little' },
+  { key: 'great',  label: 'SL',  cssKey: 'great' },
+  { key: 'ultra',  label: 'HL',  cssKey: 'ultra' },
+  { key: 'master', label: 'ML',  cssKey: 'master' },
 ] as const;
 
 function getRecommendation(rank: number): { label: string; css: string } {
@@ -126,28 +128,54 @@ function ResultCard({ result, isTop, totalCount }: {
         <IvBar label="HP" value={sta} />
       </div>
 
-      {/* 3リーグ同時表示 */}
+      {/* 4リーグ同時表示 */}
       <div className="league-rank-row">
-        {LEAGUES.map(({ key, name }) => {
-          const info = leagues[key];
+        {DISPLAY_LEAGUES.map(({ key, label, cssKey }) => {
+          const info = leagues[key] as LeagueRank | null;
+          // ML の場合は master51 も取得
+          const info51 = key === 'master' ? leagues.master51 : null;
+
           if (!info) return (
             <div key={key} className="league-rank-cell">
-              <div className={`league-rank-header league-rank-header-${key}`}>{name}</div>
+              <div className={`league-rank-header league-rank-header-${cssKey}`}>{label}</div>
               <div className="league-rank-na">-</div>
             </div>
           );
+
           const rec = getRecommendation(info.rank);
+
           return (
             <div key={key} className="league-rank-cell">
-              <div className={`league-rank-header league-rank-header-${key}`}>{name}</div>
+              <div className={`league-rank-header league-rank-header-${cssKey}`}>{label}</div>
+
+              {/* メインエントリ */}
               <div className="league-rank-number" style={{ color: rankColor(info.rank) }}>
-                #{info.rank}
+                {info.rank}位
               </div>
-              <div className="league-rank-pct">{info.percentOfBest}%</div>
               <div className="league-rank-detail">
-                CP{info.maxCp} / Lv{info.maxLevel}
+                CP{info.maxCp}(Lv{info.maxLevel})
               </div>
-              <span className={`badge ${rec.css}`} style={{ fontSize: '0.6rem', padding: '2px 6px' }}>
+              <div className="league-rank-scp">
+                SCP{info.scp}
+              </div>
+
+              {/* ML: Lv51 (相棒ブースト) */}
+              {info51 && (
+                <>
+                  <div className="league-rank-divider" />
+                  <div className="league-rank-number" style={{ color: rankColor(info51.rank), fontSize: '0.9rem' }}>
+                    {info51.rank}位
+                  </div>
+                  <div className="league-rank-detail">
+                    CP{info51.maxCp}(Lv{info51.maxLevel})
+                  </div>
+                  <div className="league-rank-scp">
+                    SCP{info51.scp}
+                  </div>
+                </>
+              )}
+
+              <span className={`badge ${rec.css}`} style={{ fontSize: '0.6rem', padding: '2px 6px', marginTop: 2 }}>
                 {rec.label}
               </span>
             </div>

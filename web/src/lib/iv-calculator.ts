@@ -1,13 +1,21 @@
 import { CPM_TABLE, DUST_TO_LEVEL, levelToIndex, indexToLevel } from '../data/cpm';
-import type { Pokemon, IvInput, IvResult } from './types';
+import type { Pokemon, IvInput, IvResult, LeagueKey } from './types';
 
-const LEAGUE_CAPS = {
-  great: 1500,
-  ultra: 2500,
-  master: Infinity,
+/** リーグ設定 */
+interface LeagueConfig {
+  cpCap: number;
+  maxLevel: number;   // 探索レベル上限
+}
+
+const LEAGUE_CONFIGS: Record<LeagueKey, LeagueConfig> = {
+  little:   { cpCap: 500,      maxLevel: 51 },
+  great:    { cpCap: 1500,     maxLevel: 51 },
+  ultra:    { cpCap: 2500,     maxLevel: 51 },
+  master:   { cpCap: Infinity, maxLevel: 50 },
+  master51: { cpCap: Infinity, maxLevel: 51 },
 } as const;
 
-type League = keyof typeof LEAGUE_CAPS;
+const LEAGUE_KEYS: LeagueKey[] = ['little', 'great', 'ultra', 'master', 'master51'];
 
 /** CP 計算 (公式) */
 export function calcCp(
@@ -38,6 +46,11 @@ function statProduct(
   return atk * def * sta;
 }
 
+/** SCP 計算: (statProduct)^(2/3) / 10 */
+function calcScp(sp: number): number {
+  return Math.floor(Math.pow(sp, 2 / 3) / 10);
+}
+
 /** ほしのすなからレベル範囲を取得 */
 function getLevelRange(dust: number | null): { min: number; max: number } {
   if (dust === null) return { min: 1, max: 55 };
@@ -49,22 +62,23 @@ function getLevelRange(dust: number | null): { min: number; max: number } {
 /** あるIV組み合わせで、CP上限以下の最大レベルを求める */
 function findMaxLevel(
   pokemon: Pokemon, ivAtk: number, ivDef: number, ivSta: number,
-  cpCap: number,
+  cpCap: number, maxLevel: number,
 ): { level: number; cp: number; sp: number } | null {
   const { baseAtk, baseDef, baseSta } = pokemon;
+  const maxIdx = Math.min(levelToIndex(maxLevel), CPM_TABLE.length - 1);
 
-  // マスターリーグ: 常に最大レベル
+  // マスターリーグ (CP上限なし): 指定レベルで固定
   if (cpCap === Infinity) {
-    const idx = CPM_TABLE.length - 1;
-    const cpm = CPM_TABLE[idx];
+    const cpm = CPM_TABLE[maxIdx];
     return {
-      level: indexToLevel(idx),
+      level: indexToLevel(maxIdx),
       cp: calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
       sp: statProduct(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm),
     };
   }
 
-  for (let idx = CPM_TABLE.length - 1; idx >= 0; idx--) {
+  // CP上限あり: 上限以下の最大レベルを探索
+  for (let idx = maxIdx; idx >= 0; idx--) {
     const cpm = CPM_TABLE[idx];
     const cp = calcCp(baseAtk, baseDef, baseSta, ivAtk, ivDef, ivSta, cpm);
     if (cp <= cpCap) {
@@ -81,19 +95,19 @@ function findMaxLevel(
 // --- リーグランキングキャッシュ ---
 // 同一ポケモンなら全4096通りのランキングは不変 → 1回だけ計算してキャッシュ
 let _rankCacheId = -1;
-let _rankCache: Record<League, number[]> | null = null;
+let _rankCache: Record<LeagueKey, number[]> | null = null;
 
-function getOrBuildLeagueTables(pokemon: Pokemon): Record<League, number[]> {
+function getOrBuildLeagueTables(pokemon: Pokemon): Record<LeagueKey, number[]> {
   if (_rankCacheId === pokemon.id && _rankCache) return _rankCache;
 
-  const tables = {} as Record<League, number[]>;
-  for (const league of ['great', 'ultra', 'master'] as const) {
-    const cpCap = LEAGUE_CAPS[league];
+  const tables = {} as Record<LeagueKey, number[]>;
+  for (const league of LEAGUE_KEYS) {
+    const config = LEAGUE_CONFIGS[league];
     const sps: number[] = [];
     for (let a = 0; a <= 15; a++) {
       for (let d = 0; d <= 15; d++) {
         for (let s = 0; s <= 15; s++) {
-          const entry = findMaxLevel(pokemon, a, d, s, cpCap);
+          const entry = findMaxLevel(pokemon, a, d, s, config.cpCap, config.maxLevel);
           if (entry) sps.push(entry.sp);
         }
       }
@@ -122,12 +136,15 @@ function findRank(sortedDesc: number[], target: number): number {
 /** リーグランクを計算 */
 function calcLeagueRanks(
   pokemon: Pokemon, ivAtk: number, ivDef: number, ivSta: number,
-  tables: Record<League, number[]>,
+  tables: Record<LeagueKey, number[]>,
 ): IvResult['leagues'] {
-  const result: IvResult['leagues'] = { great: null, ultra: null, master: null };
+  const result: IvResult['leagues'] = {
+    little: null, great: null, ultra: null, master: null, master51: null,
+  };
 
-  for (const league of ['great', 'ultra', 'master'] as const) {
-    const me = findMaxLevel(pokemon, ivAtk, ivDef, ivSta, LEAGUE_CAPS[league]);
+  for (const league of LEAGUE_KEYS) {
+    const config = LEAGUE_CONFIGS[league];
+    const me = findMaxLevel(pokemon, ivAtk, ivDef, ivSta, config.cpCap, config.maxLevel);
     if (!me) continue;
 
     const sorted = tables[league];
@@ -138,6 +155,7 @@ function calcLeagueRanks(
       maxCp: me.cp,
       maxLevel: me.level,
       statProduct: me.sp,
+      scp: calcScp(me.sp),
       percentOfBest: Math.round((me.sp / bestSp) * 10000) / 100,
     };
   }
@@ -185,7 +203,7 @@ export function calculateAllIvCombinations(
             hp,
             ivPercent,
             statProduct: sp,
-            leagues: { great: null, ultra: null, master: null },
+            leagues: { little: null, great: null, ultra: null, master: null, master51: null },
           });
         }
       }
