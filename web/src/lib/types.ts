@@ -20,6 +20,9 @@ export interface IvInput {
   shadow: boolean;      // シャドウポケモン
 }
 
+/** リーグキー */
+export type LeagueKey = 'little' | 'great' | 'ultra' | 'master' | 'master51';
+
 /** IV 計算結果 1件 */
 export interface IvResult {
   level: number;
@@ -31,11 +34,7 @@ export interface IvResult {
   ivPercent: number;    // 0-100
   statProduct: number;  // PvP 用: atk * def * sta
   /** リーグ別ランク情報 */
-  leagues: {
-    great: LeagueRank | null;
-    ultra: LeagueRank | null;
-    master: LeagueRank | null;
-  };
+  leagues: Record<LeagueKey, LeagueRank | null>;
 }
 
 /** リーグ内での順位情報 */
@@ -44,7 +43,23 @@ export interface LeagueRank {
   maxCp: number;        // そのリーグ上限でのCP
   maxLevel: number;     // そのリーグ上限でのレベル
   statProduct: number;
+  scp: number;          // SCP: (statProduct)^(2/3) / 10
   percentOfBest: number; // 1位の stat product に対する割合 (%)
+}
+
+/** 進化ランキング: リーグ別情報 */
+export interface EvolutionLeagueInfo {
+  rank: number;
+  cp: number;
+  level: number;
+  scp: number;
+  preCp: number;        // 前CP: 選択ポケモンの同レベルでのCP
+}
+
+/** 進化ランキング: 1形態分 */
+export interface EvolutionRankEntry {
+  pokemon: Pokemon;
+  leagues: Record<LeagueKey, EvolutionLeagueInfo | null>;
 }
 
 /** ほしのすな → レベル範囲テーブル */

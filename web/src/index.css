@@ -19,6 +19,8 @@
   --text-secondary: #8899aa;
   --text-dim: #556677;
 
+  --league-little: #66d9a0;
+  --league-little-bg: rgba(102, 217, 160, 0.15);
   --league-great: #5b9bd5;
   --league-great-bg: rgba(91, 155, 213, 0.15);
   --league-ultra: #f0c040;
@@ -245,6 +247,10 @@ body {
   border-radius: 12px;
   letter-spacing: 0.02em;
 }
+.badge-little {
+  background: var(--league-little-bg);
+  color: var(--league-little);
+}
 .badge-great {
   background: var(--league-great-bg);
   color: var(--league-great);
@@ -370,6 +376,148 @@ input[type="range"]::-webkit-slider-thumb {
 /* --- select スタイル --- */
 select.field-input {
   cursor: pointer;
+}
+
+/* --- 4リーグ同時表示 --- */
+.league-rank-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 4px;
+}
+.league-rank-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 3px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+}
+.league-rank-header {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.league-rank-header-little { color: var(--league-little); }
+.league-rank-header-great { color: var(--league-great); }
+.league-rank-header-ultra { color: var(--league-ultra); }
+.league-rank-header-master { color: var(--league-master); }
+.league-rank-number {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.league-rank-detail {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.league-rank-scp {
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.league-rank-divider {
+  width: 60%;
+  height: 1px;
+  background: var(--surface-border);
+  margin: 3px 0;
+}
+.league-rank-na {
+  font-size: 1rem;
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
+/* --- 計算中表示 --- */
+.loading-state {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* --- 進化ランキング表示 --- */
+.evo-league-header {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 0 0 0 0;
+}
+.evo-league-label {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 6px 0;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.15);
+}
+.evo-form-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 10px;
+  box-shadow: var(--shadow);
+}
+.evo-form-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  padding-left: 2px;
+}
+.evo-league-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.evo-league-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-sm);
+}
+.evo-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.evo-rank {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.evo-cp {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.evo-scp {
+  font-size: 0.58rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.evo-pre-cp {
+  font-size: 0.52rem;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+.evo-divider {
+  width: 50%;
+  height: 1px;
+  background: var(--surface-border);
+  margin: 3px 0;
+}
+.evo-na {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  padding: 8px 0;
 }
 
 /* --- アニメーション --- */
