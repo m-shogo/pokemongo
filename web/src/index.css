@@ -197,19 +197,6 @@ body {
   color: var(--league-master);
 }
 
-/* --- 星評価 --- */
-.stars {
-  display: inline-flex;
-  gap: 2px;
-}
-.star {
-  font-size: 0.9rem;
-  color: var(--text-dim);
-}
-.star.filled {
-  color: var(--iv-high);
-}
-
 /* --- 結果カード --- */
 .result-card {
   background: var(--surface);

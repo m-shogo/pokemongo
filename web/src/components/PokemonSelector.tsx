@@ -110,7 +110,7 @@ export function PokemonSelector({ pokemon, selectedId, onSelect }: Props) {
       {open && (displayList.length > 0 || query) && (
         <div className="dropdown fade-in">
           {showHistoryLabel && (
-            <div style={{ padding: '6px 12px', fontSize: '0.7rem', color: 'var(--text-dim)', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ padding: '6px 12px', fontSize: '0.7rem', color: 'var(--text-dim)', borderBottom: '1px solid var(--surface-border)' }}>
               最近のポケモン
             </div>
           )}
