@@ -54,6 +54,7 @@ export interface EvolutionLeagueInfo {
   level: number;
   scp: number;
   preCp: number;        // 前CP: 選択ポケモンの同レベルでのCP
+  percentOfBest: number; // 1位の stat product に対する割合 (%)
 }
 
 /** 進化ランキング: 1形態分 */

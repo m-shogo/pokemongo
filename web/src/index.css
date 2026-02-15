@@ -7,11 +7,12 @@
 }
 
 :root {
-  --bg: #0b1622;
-  --bg-gradient: linear-gradient(180deg, #0f2033 0%, #0b1622 100%);
-  --surface: #152238;
-  --surface-hover: #1a2d4a;
-  --surface-border: rgba(255, 255, 255, 0.08);
+  --bg: #0a0e1a;
+  --bg-gradient: linear-gradient(180deg, #101828 0%, #0a0e1a 50%);
+  --surface: #141c2e;
+  --surface-hover: #1a2640;
+  --surface-border: rgba(255, 255, 255, 0.07);
+  --surface-glow: rgba(100, 180, 255, 0.04);
   --primary: #00d4aa;
   --primary-glow: rgba(0, 212, 170, 0.2);
   --danger: #ff4757;
@@ -20,22 +21,29 @@
   --text-dim: #556677;
 
   --league-little: #66d9a0;
-  --league-little-bg: rgba(102, 217, 160, 0.15);
+  --league-little-bg: rgba(102, 217, 160, 0.12);
   --league-great: #5b9bd5;
-  --league-great-bg: rgba(91, 155, 213, 0.15);
+  --league-great-bg: rgba(91, 155, 213, 0.12);
   --league-ultra: #f0c040;
-  --league-ultra-bg: rgba(240, 192, 64, 0.15);
+  --league-ultra-bg: rgba(240, 192, 64, 0.12);
   --league-master: #c084fc;
-  --league-master-bg: rgba(192, 132, 252, 0.15);
+  --league-master-bg: rgba(192, 132, 252, 0.12);
 
-  --iv-perfect: #00d4aa;
+  --iv-perfect: #00e8b8;
   --iv-high: #f0c040;
   --iv-mid: #5b9bd5;
   --iv-low: #ff4757;
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  --rank-god: #ffd700;
+  --rank-god-bg: rgba(255, 215, 0, 0.12);
+  --rank-top: #00e8b8;
+  --rank-top-bg: rgba(0, 232, 184, 0.10);
+  --rank-good: #5b9bd5;
+  --rank-good-bg: rgba(91, 155, 213, 0.08);
+
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 2px 16px rgba(0, 0, 0, 0.35);
 }
 
 body {
@@ -50,10 +58,10 @@ body {
 #root {
   max-width: 480px;
   margin: 0 auto;
-  padding: 12px 16px 80px;
+  padding: 8px 14px 80px;
 }
 
-/* --- 共通ユーティリティ --- */
+/* === 共通ユーティリティ === */
 .card {
   background: var(--surface);
   border: 1px solid var(--surface-border);
@@ -63,45 +71,47 @@ body {
 }
 
 .section-label {
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.65rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--text-dim);
   margin-bottom: 8px;
 }
 
-/* --- ヘッダー --- */
+/* === ヘッダー === */
 .app-header {
   text-align: center;
-  padding: 16px 0 20px;
+  padding: 12px 0 16px;
 }
 .app-header h1 {
-  font-size: 1.15rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--primary), #5b9bd5);
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, #00e8b8, #5b9bd5, #c084fc);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 .app-header p {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-dim);
   margin-top: 2px;
+  letter-spacing: 0.05em;
 }
 
-/* --- 入力フィールド --- */
+/* === 入力フィールド === */
 .field-input {
   display: block;
   width: 100%;
-  padding: 10px 12px;
-  font-size: 1rem;
-  background: rgba(0, 0, 0, 0.25);
+  padding: 11px 12px;
+  font-size: 0.95rem;
+  background: rgba(0, 0, 0, 0.3);
   color: var(--text);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-sm);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .field-input:focus {
   border-color: var(--primary);
@@ -111,7 +121,7 @@ body {
   color: var(--text-dim);
 }
 
-/* --- チップボタン --- */
+/* === チップボタン === */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -137,7 +147,7 @@ body {
   color: var(--primary);
 }
 
-/* --- メインボタン --- */
+/* === メインボタン === */
 .btn-primary {
   display: block;
   width: 100%;
@@ -162,7 +172,7 @@ body {
   transform: none;
 }
 
-/* --- リーグタブ --- */
+/* === リーグタブ === */
 .league-tabs {
   display: flex;
   gap: 4px;
@@ -197,7 +207,7 @@ body {
   color: var(--league-master);
 }
 
-/* --- 結果カード --- */
+/* === 結果カード === */
 .result-card {
   background: var(--surface);
   border: 1px solid var(--surface-border);
@@ -210,7 +220,7 @@ body {
   box-shadow: 0 0 16px var(--primary-glow);
 }
 
-/* --- IV バー --- */
+/* === IV バー === */
 .iv-bar-track {
   height: 5px;
   background: rgba(255, 255, 255, 0.06);
@@ -223,7 +233,7 @@ body {
   transition: width 0.3s ease;
 }
 
-/* --- おすすめバッジ --- */
+/* === おすすめバッジ === */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -251,11 +261,11 @@ body {
   color: var(--league-master);
 }
 .badge-top {
-  background: rgba(0, 212, 170, 0.15);
-  color: var(--primary);
+  background: rgba(0, 232, 184, 0.15);
+  color: var(--rank-top);
 }
 .badge-ok {
-  background: rgba(240, 192, 64, 0.15);
+  background: rgba(240, 192, 64, 0.12);
   color: var(--iv-high);
 }
 .badge-nope {
@@ -263,23 +273,23 @@ body {
   color: var(--iv-low);
 }
 
-/* --- ドロップダウン --- */
+/* === ドロップダウン === */
 .dropdown {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  max-height: 260px;
+  max-height: 280px;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   z-index: 50;
   overscroll-behavior: contain;
 }
 .dropdown-item {
-  padding: 10px 14px;
+  padding: 11px 14px;
   font-size: 0.9rem;
   cursor: pointer;
   transition: background 0.1s;
@@ -290,7 +300,7 @@ body {
   background: var(--surface-hover);
 }
 
-/* --- スライダー --- */
+/* === スライダー === */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
@@ -303,15 +313,15 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   background: var(--primary);
   cursor: pointer;
-  box-shadow: 0 0 6px var(--primary-glow);
+  box-shadow: 0 0 8px var(--primary-glow), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-/* --- 入手方法ボタン --- */
+/* === 入手方法ボタン === */
 .source-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -345,7 +355,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 1.2rem;
 }
 
-/* --- 空状態 --- */
+/* === 空状態 === */
 .empty-state {
   text-align: center;
   padding: 40px 20px;
@@ -360,12 +370,12 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 0.85rem;
 }
 
-/* --- select スタイル --- */
+/* === select スタイル === */
 select.field-input {
   cursor: pointer;
 }
 
-/* --- 4リーグ同時表示 --- */
+/* === 4リーグ同時表示 === */
 .league-rank-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -418,44 +428,209 @@ select.field-input {
   padding: 8px 0;
 }
 
-/* --- 計算中表示 --- */
+/* === 計算中表示 === */
 .loading-state {
   text-align: center;
-  padding: 32px 20px;
+  padding: 28px 20px;
   color: var(--primary);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
 }
+.loading-pokeball {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--primary);
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+  margin-bottom: 8px;
+}
 
-/* --- 進化ランキング表示 --- */
+/* === IV 入力カード === */
+.iv-input-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.iv-sliders-row {
+  display: flex;
+  gap: 8px;
+}
+
+.iv-slider {
+  flex: 1;
+  text-align: center;
+  padding: 6px 4px 4px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-sm);
+}
+
+.iv-slider-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+.iv-slider-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 2px 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.iv-slider-unknown {
+  margin-top: 4px;
+  font-size: 0.62rem;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 4px 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* === IV サマリー === */
+.iv-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.iv-total {
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.iv-total-max {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.iv-percent-ring {
+  position: relative;
+  width: 48px;
+  height: 48px;
+}
+
+.iv-percent-ring svg {
+  transform: rotate(-90deg);
+}
+
+.iv-percent-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.iv-appraisal {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 2px 0;
+}
+
+/* === 進化ランキング表示 === */
+.evo-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.evo-panel-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.evo-panel-iv {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.evo-reset-btn {
+  font-size: 0.75rem;
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.evo-reset-btn:active {
+  background: var(--surface-hover);
+}
+
 .evo-league-header {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
-  padding: 0 0 0 0;
 }
 .evo-league-label {
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  padding: 6px 0;
+  padding: 7px 0;
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.03em;
 }
+
 .evo-form-card {
   background: var(--surface);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
   padding: 10px;
   box-shadow: var(--shadow);
+  transition: border-color 0.2s;
 }
-.evo-form-name {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--text);
+.evo-form-card.evo-selected {
+  border-color: rgba(0, 212, 170, 0.25);
+  box-shadow: var(--shadow), 0 0 12px rgba(0, 212, 170, 0.06);
+}
+
+.evo-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 6px;
   padding-left: 2px;
 }
+
+.evo-form-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.evo-form-tag {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-glow);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
 .evo-league-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -468,7 +643,14 @@ select.field-input {
   padding: 6px 2px;
   background: rgba(0, 0, 0, 0.12);
   border-radius: var(--radius-sm);
+  transition: background 0.15s;
+  position: relative;
 }
+.evo-league-cell.evo-cell-best {
+  background: rgba(255, 215, 0, 0.06);
+  border: 1px solid rgba(255, 215, 0, 0.12);
+}
+
 .evo-entry {
   display: flex;
   flex-direction: column;
@@ -476,9 +658,19 @@ select.field-input {
   gap: 1px;
 }
 .evo-rank {
-  font-size: 0.9rem;
-  font-weight: 700;
+  font-size: 0.95rem;
+  font-weight: 800;
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.evo-rank-suffix {
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+.evo-percent {
+  font-size: 0.55rem;
+  font-weight: 600;
+  opacity: 0.7;
 }
 .evo-cp {
   font-size: 0.55rem;
@@ -507,11 +699,91 @@ select.field-input {
   padding: 8px 0;
 }
 
-/* --- アニメーション --- */
+/* === ランク評価バッジ === */
+.evo-rec {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 8px;
+  margin-top: 3px;
+  letter-spacing: 0.02em;
+}
+.evo-rec-god {
+  background: var(--rank-god-bg);
+  color: var(--rank-god);
+}
+.evo-rec-top {
+  background: var(--rank-top-bg);
+  color: var(--rank-top);
+}
+.evo-rec-good {
+  background: var(--rank-good-bg);
+  color: var(--rank-good);
+}
+.evo-rec-ok {
+  background: rgba(240, 192, 64, 0.10);
+  color: var(--iv-high);
+}
+.evo-rec-meh {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+}
+
+/* === ポケモン選択済み表示 === */
+.selected-pokemon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+}
+.selected-pokemon-id {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.selected-pokemon-name {
+  font-size: 1rem;
+  font-weight: 700;
+}
+.selected-pokemon-clear {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 50%;
+  transition: color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+}
+.selected-pokemon-clear:active {
+  color: var(--text-secondary);
+}
+
+/* === アニメーション === */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .fade-in {
-  animation: fadeIn 0.2s ease;
+  animation: fadeIn 0.25s ease;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.slide-up {
+  animation: slideUp 0.3s ease;
 }

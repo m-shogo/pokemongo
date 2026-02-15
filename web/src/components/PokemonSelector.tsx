@@ -34,16 +34,16 @@ export function PokemonSelector({ pokemon, selectedId, onSelect }: Props) {
   const [history, setHistory] = useState<number[]>(loadHistory);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // ひらがな→カタカナ変換して検索
   const filtered = useMemo(() => {
-    if (!query) return null; // クエリなし → 履歴表示用に null
+    if (!query) return null;
     const q = hiraganaToKatakana(query.toLowerCase());
     return pokemon.filter((p) =>
-      hiraganaToKatakana(p.name.toLowerCase()).includes(q) || String(p.id).includes(q),
+      hiraganaToKatakana(p.name.toLowerCase()).includes(q)
+      || String(p.id).includes(q)
+      || String(p.id).padStart(3, '0').includes(q),
     );
   }, [pokemon, query]);
 
-  // 履歴のポケモン一覧
   const historyPokemon = useMemo(() => {
     if (!open || query) return [];
     return history
@@ -53,7 +53,6 @@ export function PokemonSelector({ pokemon, selectedId, onSelect }: Props) {
 
   const selected = selectedId !== null ? pokemon.find((p) => p.id === selectedId) : null;
 
-  // 選択時に履歴保存
   const handleSelect = (id: number | null) => {
     onSelect(id);
     if (id !== null) {
@@ -63,7 +62,6 @@ export function PokemonSelector({ pokemon, selectedId, onSelect }: Props) {
     }
   };
 
-  // 外から selectedId が変わった場合も履歴に入れる
   useEffect(() => {
     if (selectedId !== null && !history.includes(selectedId)) {
       const next = [selectedId, ...history].slice(0, MAX_HISTORY);
@@ -79,38 +77,45 @@ export function PokemonSelector({ pokemon, selectedId, onSelect }: Props) {
   return (
     <div className="card" style={{ position: 'relative' }}>
       <div className="section-label">POKEMON</div>
-      <input
-        ref={inputRef}
-        type="text"
-        className="field-input"
-        value={open ? query : selected ? `#${selected.id} ${selected.name}` : ''}
-        placeholder="名前 or 図鑑No で検索..."
-        onFocus={() => { setOpen(true); setQuery(''); }}
-        onBlur={() => setTimeout(() => setOpen(false), 200)}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {selected && !open && (
-        <button
-          onClick={() => { onSelect(null); inputRef.current?.focus(); }}
-          style={{
-            position: 'absolute',
-            right: 24,
-            top: 38,
-            background: 'none',
-            border: 'none',
-            color: 'var(--text-dim)',
-            fontSize: '1rem',
-            cursor: 'pointer',
-            padding: 4,
-          }}
-        >
-          x
-        </button>
+
+      {/* 選択済み: カード風表示 / 未選択: 検索フィールド */}
+      {selected && !open ? (
+        <div className="selected-pokemon">
+          <span className="selected-pokemon-id">#{String(selected.id).padStart(3, '0')}</span>
+          <span className="selected-pokemon-name">{selected.name}</span>
+          <button
+            className="selected-pokemon-clear"
+            onClick={() => { onSelect(null); setTimeout(() => inputRef.current?.focus(), 50); }}
+          >
+            &times;
+          </button>
+        </div>
+      ) : (
+        <input
+          ref={inputRef}
+          type="text"
+          className="field-input"
+          value={query}
+          placeholder="名前 or 図鑑No で検索..."
+          onFocus={() => { setOpen(true); setQuery(''); }}
+          onBlur={() => setTimeout(() => setOpen(false), 200)}
+          onChange={(e) => setQuery(e.target.value)}
+          autoComplete="off"
+        />
       )}
+
       {open && (displayList.length > 0 || query) && (
         <div className="dropdown fade-in">
           {showHistoryLabel && (
-            <div style={{ padding: '6px 12px', fontSize: '0.7rem', color: 'var(--text-dim)', borderBottom: '1px solid var(--surface-border)' }}>
+            <div style={{
+              padding: '7px 14px',
+              fontSize: '0.68rem',
+              fontWeight: 600,
+              color: 'var(--text-dim)',
+              borderBottom: '1px solid var(--surface-border)',
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+            }}>
               最近のポケモン
             </div>
           )}
@@ -120,14 +125,25 @@ export function PokemonSelector({ pokemon, selectedId, onSelect }: Props) {
               className={`dropdown-item${p.id === selectedId ? ' selected' : ''}`}
               onMouseDown={() => { handleSelect(p.id); setOpen(false); }}
             >
-              <span style={{ color: 'var(--text-dim)', marginRight: 8, fontSize: '0.8rem' }}>
+              <span style={{
+                color: 'var(--text-dim)',
+                marginRight: 10,
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                fontVariantNumeric: 'tabular-nums',
+              }}>
                 #{String(p.id).padStart(3, '0')}
               </span>
               {p.name}
             </div>
           ))}
           {filtered !== null && filtered.length === 0 && (
-            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
+            <div style={{
+              padding: '20px',
+              textAlign: 'center',
+              color: 'var(--text-dim)',
+              fontSize: '0.85rem',
+            }}>
               見つかりません
             </div>
           )}
