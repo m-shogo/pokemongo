@@ -5,52 +5,13 @@ interface Props {
   onChange: (v: IvInputType) => void;
 }
 
-/** チームリーダー評価 (星) */
-const APPRAISALS = [
-  { stars: 0, label: '\u2015',   min: 0,  max: 22 },
-  { stars: 1, label: '\u2605',   min: 23, max: 29 },
-  { stars: 2, label: '\u2605\u2605',  min: 30, max: 36 },
-  { stars: 3, label: '\u2605\u2605\u2605', min: 37, max: 44 },
-  { stars: 4, label: '\u2605\u2605\u2605\u2605', min: 45, max: 45 },
-] as const;
-
 export function IvInput({ value, onChange }: Props) {
   const set = (patch: Partial<IvInputType>) => onChange({ ...value, ...patch });
 
-  const handleAppraisal = (appraisal: typeof APPRAISALS[number]) => {
-    if (appraisal.stars === 4) {
-      set({ atk: 15, def: 15, sta: 15 });
-    } else if (appraisal.stars === 0) {
-      set({ atk: null, def: null, sta: null });
-    }
-  };
-
-  const ivTotal = (value.atk ?? 0) + (value.def ?? 0) + (value.sta ?? 0);
-  const currentStars = value.atk === 15 && value.def === 15 && value.sta === 15 ? 4
-    : ivTotal >= 37 ? 3
-    : ivTotal >= 30 ? 2
-    : ivTotal >= 23 ? 1 : 0;
-
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-      {/* チームリーダー評価 */}
       <div>
-        <div className="section-label">APPRAISAL</div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          {APPRAISALS.map((a) => (
-            <button
-              key={a.stars}
-              className={`chip${currentStars === a.stars ? ' active' : ''}`}
-              onClick={() => handleAppraisal(a)}
-              style={{ flex: 1, justifyContent: 'center', fontSize: a.stars >= 3 ? '0.65rem' : '0.8rem' }}
-            >
-              {a.label}
-            </button>
-          ))}
-        </div>
-
-        {/* IV スライダー */}
+        <div className="section-label">IV</div>
         <div style={{ display: 'flex', gap: 12 }}>
           <IvSlider label="ATK" value={value.atk} onChange={(v) => set({ atk: v })} />
           <IvSlider label="DEF" value={value.def} onChange={(v) => set({ def: v })} />
