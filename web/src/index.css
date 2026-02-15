@@ -451,7 +451,76 @@ select.field-input {
 .iv-input-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+/* フンド演出 */
+.iv-input-card.iv-hundo {
+  border-color: rgba(255, 215, 0, 0.3);
+  box-shadow: var(--shadow), 0 0 20px rgba(255, 215, 0, 0.1);
+  animation: hundoPulse 2s ease-in-out infinite;
+}
+/* ナンド演出 */
+.iv-input-card.iv-nundo {
+  border-color: rgba(91, 155, 213, 0.25);
+  box-shadow: var(--shadow), 0 0 16px rgba(91, 155, 213, 0.08);
+}
+
+/* === 星評価 === */
+.iv-stars-row {
+  display: flex;
+  gap: 2px;
+}
+.iv-star {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  line-height: 1;
+}
+.iv-star-filled {
+  color: var(--iv-high);
+  text-shadow: 0 0 6px rgba(240, 192, 64, 0.4);
+}
+
+/* === IV プリセットボタン === */
+.iv-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.iv-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 7px 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+  background: rgba(0, 0, 0, 0.12);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.iv-preset-btn:active {
+  transform: scale(0.95);
+}
+.iv-preset-btn.active {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.iv-preset-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.iv-preset-desc {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+}
+.iv-preset-btn.active .iv-preset-desc {
+  color: var(--primary);
+  opacity: 0.7;
 }
 
 .iv-sliders-row {
@@ -480,8 +549,15 @@ select.field-input {
   font-size: 1.5rem;
   font-weight: 800;
   line-height: 1.2;
-  margin: 2px 0 6px;
+  margin: 2px 0;
   font-variant-numeric: tabular-nums;
+}
+
+.iv-slider-comment {
+  font-size: 0.55rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  opacity: 0.8;
 }
 
 .iv-slider-unknown {
@@ -502,9 +578,12 @@ select.field-input {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 14px;
   padding: 10px 0 4px;
   border-top: 1px solid var(--surface-border);
+}
+.iv-summary-hundo {
+  border-top-color: rgba(255, 215, 0, 0.2);
 }
 
 .iv-total {
@@ -519,10 +598,36 @@ select.field-input {
   color: var(--text-dim);
 }
 
+/* === スペシャルタグ (HUNDO / NUNDO / PvP理想) === */
+.iv-special-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+  letter-spacing: 0.05em;
+}
+.iv-special-hundo {
+  background: var(--rank-god-bg);
+  color: var(--rank-god);
+  animation: hundoTag 1.5s ease-in-out infinite;
+}
+.iv-special-nundo {
+  background: var(--rank-good-bg);
+  color: var(--rank-good);
+}
+.iv-special-pvp理想 {
+  background: var(--rank-top-bg);
+  color: var(--rank-top);
+}
+
 .iv-percent-ring {
   position: relative;
   width: 48px;
   height: 48px;
+  flex-shrink: 0;
 }
 
 .iv-percent-ring svg {
@@ -542,7 +647,6 @@ select.field-input {
 .iv-appraisal {
   font-size: 0.72rem;
   font-weight: 600;
-  text-align: center;
   padding: 2px 0;
 }
 
@@ -607,6 +711,10 @@ select.field-input {
   border-color: rgba(0, 212, 170, 0.25);
   box-shadow: var(--shadow), 0 0 12px rgba(0, 212, 170, 0.06);
 }
+.evo-form-card.evo-rank1 {
+  border-color: rgba(255, 215, 0, 0.2);
+  box-shadow: var(--shadow), 0 0 16px rgba(255, 215, 0, 0.06);
+}
 
 .evo-form-header {
   display: flex;
@@ -622,6 +730,12 @@ select.field-input {
   color: var(--text);
 }
 
+.evo-form-tags {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 .evo-form-tag {
   font-size: 0.58rem;
   font-weight: 600;
@@ -629,6 +743,23 @@ select.field-input {
   background: var(--primary-glow);
   padding: 2px 8px;
   border-radius: 10px;
+  white-space: nowrap;
+}
+.evo-form-tag-little {
+  color: var(--league-little);
+  background: var(--league-little-bg);
+}
+.evo-form-tag-great {
+  color: var(--league-great);
+  background: var(--league-great-bg);
+}
+.evo-form-tag-ultra {
+  color: var(--league-ultra);
+  background: var(--league-ultra-bg);
+}
+.evo-form-tag-master {
+  color: var(--league-master);
+  background: var(--league-master-bg);
 }
 
 .evo-league-row {
@@ -650,6 +781,11 @@ select.field-input {
   background: rgba(255, 215, 0, 0.06);
   border: 1px solid rgba(255, 215, 0, 0.12);
 }
+.evo-league-cell.evo-cell-rank1 {
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  animation: rank1Glow 2s ease-in-out infinite;
+}
 
 .evo-entry {
   display: flex;
@@ -662,6 +798,10 @@ select.field-input {
   font-weight: 800;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
+}
+.evo-rank.evo-rank-1 {
+  font-size: 1.1rem;
+  text-shadow: 0 0 12px rgba(255, 215, 0, 0.4);
 }
 .evo-rank-suffix {
   font-size: 0.6rem;
@@ -786,4 +926,19 @@ select.field-input {
 }
 .slide-up {
   animation: slideUp 0.3s ease;
+}
+
+@keyframes hundoPulse {
+  0%, 100% { box-shadow: var(--shadow), 0 0 20px rgba(255, 215, 0, 0.08); }
+  50% { box-shadow: var(--shadow), 0 0 30px rgba(255, 215, 0, 0.18); }
+}
+
+@keyframes hundoTag {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes rank1Glow {
+  0%, 100% { box-shadow: inset 0 0 8px rgba(255, 215, 0, 0.05); }
+  50% { box-shadow: inset 0 0 12px rgba(255, 215, 0, 0.12); }
 }

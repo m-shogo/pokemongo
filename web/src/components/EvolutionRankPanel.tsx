@@ -11,10 +11,10 @@ interface Props {
 
 /** 表示用リーグ (500 / SL / HL / ML) */
 const DISPLAY_LEAGUES = [
-  { key: 'little' as const, label: '500', cssKey: 'little' },
-  { key: 'great'  as const, label: 'SL',  cssKey: 'great' },
-  { key: 'ultra'  as const, label: 'HL',  cssKey: 'ultra' },
-  { key: 'master' as const, label: 'ML',  cssKey: 'master' },
+  { key: 'little' as const, label: '500', fullName: 'リトル', cssKey: 'little' },
+  { key: 'great'  as const, label: 'SL',  fullName: 'スーパー', cssKey: 'great' },
+  { key: 'ultra'  as const, label: 'HL',  fullName: 'ハイパー', cssKey: 'ultra' },
+  { key: 'master' as const, label: 'ML',  fullName: 'マスター', cssKey: 'master' },
 ];
 
 /** ランクに応じた色 */
@@ -32,13 +32,13 @@ function getRec(rank: number): { label: string; css: string } | null {
   if (rank <= 10)  return { label: '即育成', css: 'evo-rec-top' };
   if (rank <= 50)  return { label: '優秀', css: 'evo-rec-good' };
   if (rank <= 200) return { label: '実用的', css: 'evo-rec-ok' };
-  return null; // 200位以下はバッジなし
+  return null;
 }
 
-/** 進化形態ごとの「ベストリーグ」を判定 (rank が最小のリーグ) */
+/** 進化形態ごとの「ベストリーグ」を判定 */
 function findBestLeague(
   leagues: Record<LeagueKey, EvolutionLeagueInfo | null>,
-): LeagueKey | null {
+): { key: LeagueKey; rank: number } | null {
   let best: LeagueKey | null = null;
   let bestRank = Infinity;
   for (const { key } of DISPLAY_LEAGUES) {
@@ -48,7 +48,12 @@ function findBestLeague(
       best = key;
     }
   }
-  return bestRank <= 200 ? best : null;
+  return best && bestRank <= 200 ? { key: best, rank: bestRank } : null;
+}
+
+/** リーグキーから日本語名を取得 */
+function leagueFullName(key: LeagueKey): string {
+  return DISPLAY_LEAGUES.find((l) => l.key === key)?.fullName ?? '';
 }
 
 export function EvolutionRankPanel({
@@ -93,14 +98,24 @@ function EvolutionFormRow({ entry, isSelectedPokemon }: {
   isSelectedPokemon: boolean;
 }) {
   const { pokemon, leagues } = entry;
-  const bestLeague = findBestLeague(leagues);
+  const best = findBestLeague(leagues);
+  const hasRank1 = DISPLAY_LEAGUES.some(({ key }) => leagues[key]?.rank === 1);
 
   return (
-    <div className={`evo-form-card${isSelectedPokemon ? ' evo-selected' : ''}`}>
+    <div className={`evo-form-card${isSelectedPokemon ? ' evo-selected' : ''}${hasRank1 ? ' evo-rank1' : ''}`}>
       {/* ポケモン名 + タグ */}
       <div className="evo-form-header">
-        <span className="evo-form-name">{pokemon.name}</span>
-        {isSelectedPokemon && <span className="evo-form-tag">選択中</span>}
+        <span className="evo-form-name">
+          {pokemon.name}
+        </span>
+        <span className="evo-form-tags">
+          {isSelectedPokemon && <span className="evo-form-tag">選択中</span>}
+          {best && (
+            <span className={`evo-form-tag evo-form-tag-${best.key}`}>
+              {leagueFullName(best.key)}向き
+            </span>
+          )}
+        </span>
       </div>
 
       {/* 4リーグ横並び */}
@@ -108,7 +123,7 @@ function EvolutionFormRow({ entry, isSelectedPokemon }: {
         {DISPLAY_LEAGUES.map(({ key, cssKey }) => {
           const info = leagues[key];
           const info51 = key === 'master' ? leagues.master51 : null;
-          const isBest = key === bestLeague;
+          const isBest = key === best?.key;
 
           if (!info) {
             return (
@@ -119,9 +134,8 @@ function EvolutionFormRow({ entry, isSelectedPokemon }: {
           }
 
           return (
-            <div key={cssKey} className={`evo-league-cell${isBest ? ' evo-cell-best' : ''}`}>
+            <div key={cssKey} className={`evo-league-cell${isBest ? ' evo-cell-best' : ''}${info.rank === 1 ? ' evo-cell-rank1' : ''}`}>
               <LeagueEntry info={info} isSelectedPokemon={isSelectedPokemon} />
-              {/* ML: Lv51 (相棒) */}
               {info51 && (
                 <>
                   <div className="evo-divider" />
@@ -144,7 +158,7 @@ function LeagueEntry({ info, isSelectedPokemon }: {
 
   return (
     <div className="evo-entry">
-      <div className="evo-rank" style={{ color: rankColor(info.rank) }}>
+      <div className={`evo-rank${info.rank === 1 ? ' evo-rank-1' : ''}`} style={{ color: rankColor(info.rank) }}>
         {info.rank}<span className="evo-rank-suffix">位</span>
       </div>
       <div className="evo-percent" style={{ color: rankColor(info.rank) }}>

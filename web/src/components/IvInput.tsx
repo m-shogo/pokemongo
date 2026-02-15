@@ -14,14 +14,37 @@ function ivColor(v: number | null): string {
   return 'var(--iv-low)';
 }
 
-/** ゲーム内鑑定風テキスト */
-function getAppraisalText(total: number): { text: string; color: string } {
-  if (total === 45) return { text: '最高の相棒！', color: 'var(--iv-perfect)' };
-  if (total >= 37) return { text: '驚異的で芸術的だ', color: 'var(--iv-high)' };
-  if (total >= 30) return { text: '目を引くものがある', color: 'var(--iv-mid)' };
-  if (total >= 23) return { text: 'まずまずだ', color: 'var(--text-secondary)' };
-  return { text: 'バトル向きではない', color: 'var(--text-dim)' };
+/** ゲーム内鑑定テキスト (ブランシェ風) */
+function getAppraisal(total: number): { text: string; color: string; stars: number } {
+  if (total >= 37) return { text: '驚異的で、芸術的だ。', color: 'var(--iv-high)', stars: 3 };
+  if (total >= 30) return { text: '目を引くものがある。', color: 'var(--iv-mid)', stars: 2 };
+  if (total >= 23) return { text: '普通以上と言える。', color: 'var(--text-secondary)', stars: 1 };
+  return { text: 'バトル向きではない…', color: 'var(--text-dim)', stars: 0 };
 }
+
+/** IV値に対する個別コメント (15=最高) */
+function getStatComment(v: number): string {
+  if (v === 15) return '言うことなし！';
+  if (v >= 13) return 'すばらしい';
+  if (v >= 8) return 'とても良い';
+  return 'まあまあ';
+}
+
+/** フンド / ナンド 特別判定 */
+function getSpecialLabel(atk: number, def: number, sta: number): string | null {
+  if (atk === 15 && def === 15 && sta === 15) return 'HUNDO';
+  if (atk === 0 && def === 0 && sta === 0) return 'NUNDO';
+  if (atk === 0 && def === 15 && sta === 15) return 'PvP理想';
+  return null;
+}
+
+/** IV下限プリセット */
+const IV_PRESETS = [
+  { label: 'ワイルド', iv: 0, desc: '野生' },
+  { label: 'レイド', iv: 10, desc: 'タマゴ' },
+  { label: 'キラ', iv: 12, desc: '交換' },
+  { label: '100%', iv: 15, desc: 'MAX' },
+] as const;
 
 export function IvInput({ value, onChange }: Props) {
   const set = (patch: Partial<IvInputType>) => onChange({ ...value, ...patch });
@@ -29,10 +52,40 @@ export function IvInput({ value, onChange }: Props) {
   const allSet = value.atk !== null && value.def !== null && value.sta !== null;
   const total = allSet ? value.atk! + value.def! + value.sta! : null;
   const percent = total !== null ? Math.round((total / 45) * 100) : null;
+  const special = allSet ? getSpecialLabel(value.atk!, value.def!, value.sta!) : null;
+  const isHundo = special === 'HUNDO';
+  const isNundo = special === 'NUNDO';
+
+  /** プリセットボタン: 3つのIVを同じ値にセット */
+  const applyPreset = (iv: number) => {
+    onChange({ ...value, atk: iv, def: iv, sta: iv });
+  };
 
   return (
-    <div className="card iv-input-card">
-      <div className="section-label">IV</div>
+    <div className={`card iv-input-card${isHundo ? ' iv-hundo' : ''}${isNundo ? ' iv-nundo' : ''}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="section-label" style={{ marginBottom: 0 }}>IV</div>
+        {/* 星評価 */}
+        {total !== null && (
+          <div className="iv-stars fade-in">
+            <Stars count={getAppraisal(total).stars} />
+          </div>
+        )}
+      </div>
+
+      {/* プリセットボタン */}
+      <div className="iv-presets">
+        {IV_PRESETS.map((p) => (
+          <button
+            key={p.iv}
+            className={`iv-preset-btn${allSet && value.atk === p.iv && value.def === p.iv && value.sta === p.iv ? ' active' : ''}`}
+            onClick={() => applyPreset(p.iv)}
+          >
+            <span className="iv-preset-label">{p.label}</span>
+            <span className="iv-preset-desc">{p.desc}</span>
+          </button>
+        ))}
+      </div>
 
       {/* 3列スライダー */}
       <div className="iv-sliders-row">
@@ -43,19 +96,37 @@ export function IvInput({ value, onChange }: Props) {
 
       {/* IV サマリー */}
       {total !== null && (
-        <div className="iv-summary fade-in">
+        <div className={`iv-summary${isHundo ? ' iv-summary-hundo' : ''} fade-in`}>
           <PercentRing percent={percent!} color={ivColor(Math.min(value.atk!, value.def!, value.sta!))} />
-          <div>
+          <div style={{ textAlign: 'left' }}>
             <div className="iv-total" style={{ color: ivColor(Math.min(value.atk!, value.def!, value.sta!)) }}>
               {total}<span className="iv-total-max">/45</span>
+              {special && (
+                <span className={`iv-special-tag iv-special-${special.toLowerCase()}`}>
+                  {special}
+                </span>
+              )}
             </div>
-            <div className="iv-appraisal" style={{ color: getAppraisalText(total).color }}>
-              {getAppraisalText(total).text}
+            <div className="iv-appraisal" style={{ color: getAppraisal(total).color }}>
+              {getAppraisal(total).text}
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+/** 星表示 (0-3) ゲーム内風 */
+function Stars({ count }: { count: number }) {
+  return (
+    <span className="iv-stars-row">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className={`iv-star${i < count ? ' iv-star-filled' : ''}`}>
+          {i < count ? '\u2605' : '\u2606'}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -75,6 +146,7 @@ function PercentRing({ percent, color }: { percent: number; color: string }) {
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.4s ease' }}
         />
       </svg>
       <div className="iv-percent-ring-text" style={{ color }}>
@@ -87,12 +159,19 @@ function PercentRing({ percent, color }: { percent: number; color: string }) {
 function IvSlider({ label, value, onChange }: {
   label: string; value: number | null; onChange: (v: number | null) => void;
 }) {
+  const comment = value !== null ? getStatComment(value) : null;
+
   return (
     <div className="iv-slider">
       <div className="iv-slider-label">{label}</div>
       <div className="iv-slider-value" style={{ color: ivColor(value) }}>
         {value ?? '-'}
       </div>
+      {comment && (
+        <div className="iv-slider-comment" style={{ color: ivColor(value) }}>
+          {comment}
+        </div>
+      )}
       <input
         type="range"
         min={0}
