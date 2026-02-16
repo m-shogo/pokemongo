@@ -1,0 +1,37 @@
+name: Update Pokemon Data
+
+on:
+  # 手動実行（ボタンポチ）
+  workflow_dispatch:
+
+  # 毎月1日に自動実行（新ポケモン追加チェック）
+  schedule:
+    - cron: '0 0 1 * *'
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: ポケモンデータ取得・生成
+        run: node scripts/update-pokemon-data.mjs
+
+      - name: 差分チェック & コミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/src/data/pokemon/
+          if git diff --cached --quiet; then
+            echo "変更なし。スキップ。"
+          else
+            git commit -m "data: PvPoke/PokeAPI からポケモン種族値を自動更新"
+            git push
+          fi

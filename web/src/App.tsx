@@ -37,7 +37,6 @@ export function App() {
 
     setLoading(true);
 
-    // setTimeout で UI に計算中表示を描画させてから重い計算を実行
     timerRef.current = window.setTimeout(() => {
       const rankings = calculateEvolutionRankings(
         pokemon, ivInput.atk!, ivInput.def!, ivInput.sta!,
@@ -76,7 +75,7 @@ export function App() {
         <p>個体値チェッカー</p>
       </header>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <PokemonSelector
           pokemon={POKEMON_DATA}
           selectedId={pokemonId}
@@ -90,7 +89,8 @@ export function App() {
 
         {loading && (
           <div className="loading-state">
-            計算中...
+            <div className="loading-pokeball" />
+            <div>計算中...</div>
           </div>
         )}
 

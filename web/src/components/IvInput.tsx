@@ -5,57 +5,152 @@ interface Props {
   onChange: (v: IvInputType) => void;
 }
 
-/** チームリーダー評価 (星) */
-const APPRAISALS = [
-  { stars: 0, label: '\u2015',   min: 0,  max: 22 },
-  { stars: 1, label: '\u2605',   min: 23, max: 29 },
-  { stars: 2, label: '\u2605\u2605',  min: 30, max: 36 },
-  { stars: 3, label: '\u2605\u2605\u2605', min: 37, max: 44 },
-  { stars: 4, label: '\u2605\u2605\u2605\u2605', min: 45, max: 45 },
+/** IV値から色を返す */
+function ivColor(v: number | null): string {
+  if (v === null) return 'var(--text-dim)';
+  if (v === 15) return 'var(--iv-perfect)';
+  if (v >= 13) return 'var(--iv-high)';
+  if (v >= 8) return 'var(--iv-mid)';
+  return 'var(--iv-low)';
+}
+
+/** ゲーム内鑑定テキスト (ブランシェ風) */
+function getAppraisal(total: number): { text: string; color: string; stars: number } {
+  if (total >= 37) return { text: '驚異的で、芸術的だ。', color: 'var(--iv-high)', stars: 3 };
+  if (total >= 30) return { text: '目を引くものがある。', color: 'var(--iv-mid)', stars: 2 };
+  if (total >= 23) return { text: '普通以上と言える。', color: 'var(--text-secondary)', stars: 1 };
+  return { text: 'バトル向きではない…', color: 'var(--text-dim)', stars: 0 };
+}
+
+/** IV値に対する個別コメント (15=最高) */
+function getStatComment(v: number): string {
+  if (v === 15) return '言うことなし！';
+  if (v >= 13) return 'すばらしい';
+  if (v >= 8) return 'とても良い';
+  return 'まあまあ';
+}
+
+/** フンド / ナンド 特別判定 */
+function getSpecialLabel(atk: number, def: number, sta: number): string | null {
+  if (atk === 15 && def === 15 && sta === 15) return 'HUNDO';
+  if (atk === 0 && def === 0 && sta === 0) return 'NUNDO';
+  if (atk === 0 && def === 15 && sta === 15) return 'PvP理想';
+  return null;
+}
+
+/** IV下限プリセット */
+const IV_PRESETS = [
+  { label: 'ワイルド', iv: 0, desc: '野生' },
+  { label: 'レイド', iv: 10, desc: 'タマゴ' },
+  { label: 'キラ', iv: 12, desc: '交換' },
+  { label: '100%', iv: 15, desc: 'MAX' },
 ] as const;
 
 export function IvInput({ value, onChange }: Props) {
   const set = (patch: Partial<IvInputType>) => onChange({ ...value, ...patch });
 
-  const handleAppraisal = (appraisal: typeof APPRAISALS[number]) => {
-    if (appraisal.stars === 4) {
-      set({ atk: 15, def: 15, sta: 15 });
-    } else if (appraisal.stars === 0) {
-      set({ atk: null, def: null, sta: null });
-    }
+  const allSet = value.atk !== null && value.def !== null && value.sta !== null;
+  const total = allSet ? value.atk! + value.def! + value.sta! : null;
+  const percent = total !== null ? Math.round((total / 45) * 100) : null;
+  const special = allSet ? getSpecialLabel(value.atk!, value.def!, value.sta!) : null;
+  const isHundo = special === 'HUNDO';
+  const isNundo = special === 'NUNDO';
+
+  /** プリセットボタン: 3つのIVを同じ値にセット */
+  const applyPreset = (iv: number) => {
+    onChange({ ...value, atk: iv, def: iv, sta: iv });
   };
 
-  const ivTotal = (value.atk ?? 0) + (value.def ?? 0) + (value.sta ?? 0);
-  const currentStars = value.atk === 15 && value.def === 15 && value.sta === 15 ? 4
-    : ivTotal >= 37 ? 3
-    : ivTotal >= 30 ? 2
-    : ivTotal >= 23 ? 1 : 0;
+  return (
+    <div className={`card iv-input-card${isHundo ? ' iv-hundo' : ''}${isNundo ? ' iv-nundo' : ''}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="section-label" style={{ marginBottom: 0 }}>IV</div>
+        {/* 星評価 */}
+        {total !== null && (
+          <div className="iv-stars fade-in">
+            <Stars count={getAppraisal(total).stars} />
+          </div>
+        )}
+      </div>
+
+      {/* プリセットボタン */}
+      <div className="iv-presets">
+        {IV_PRESETS.map((p) => (
+          <button
+            key={p.iv}
+            className={`iv-preset-btn${allSet && value.atk === p.iv && value.def === p.iv && value.sta === p.iv ? ' active' : ''}`}
+            onClick={() => applyPreset(p.iv)}
+          >
+            <span className="iv-preset-label">{p.label}</span>
+            <span className="iv-preset-desc">{p.desc}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* 3列スライダー */}
+      <div className="iv-sliders-row">
+        <IvSlider label="ATK" value={value.atk} onChange={(v) => set({ atk: v })} />
+        <IvSlider label="DEF" value={value.def} onChange={(v) => set({ def: v })} />
+        <IvSlider label="HP" value={value.sta} onChange={(v) => set({ sta: v })} />
+      </div>
+
+      {/* IV サマリー */}
+      {total !== null && (
+        <div className={`iv-summary${isHundo ? ' iv-summary-hundo' : ''} fade-in`}>
+          <PercentRing percent={percent!} color={ivColor(Math.min(value.atk!, value.def!, value.sta!))} />
+          <div style={{ textAlign: 'left' }}>
+            <div className="iv-total" style={{ color: ivColor(Math.min(value.atk!, value.def!, value.sta!)) }}>
+              {total}<span className="iv-total-max">/45</span>
+              {special && (
+                <span className={`iv-special-tag iv-special-${special.toLowerCase()}`}>
+                  {special}
+                </span>
+              )}
+            </div>
+            <div className="iv-appraisal" style={{ color: getAppraisal(total).color }}>
+              {getAppraisal(total).text}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 星表示 (0-3) ゲーム内風 */
+function Stars({ count }: { count: number }) {
+  return (
+    <span className="iv-stars-row">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className={`iv-star${i < count ? ' iv-star-filled' : ''}`}>
+          {i < count ? '\u2605' : '\u2606'}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** SVG 円グラフ (パーセント表示) */
+function PercentRing({ percent, color }: { percent: number; color: string }) {
+  const r = 19;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference * (1 - percent / 100);
 
   return (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-      {/* チームリーダー評価 */}
-      <div>
-        <div className="section-label">APPRAISAL</div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          {APPRAISALS.map((a) => (
-            <button
-              key={a.stars}
-              className={`chip${currentStars === a.stars ? ' active' : ''}`}
-              onClick={() => handleAppraisal(a)}
-              style={{ flex: 1, justifyContent: 'center', fontSize: a.stars >= 3 ? '0.65rem' : '0.8rem' }}
-            >
-              {a.label}
-            </button>
-          ))}
-        </div>
-
-        {/* IV スライダー */}
-        <div style={{ display: 'flex', gap: 12 }}>
-          <IvSlider label="ATK" value={value.atk} onChange={(v) => set({ atk: v })} />
-          <IvSlider label="DEF" value={value.def} onChange={(v) => set({ def: v })} />
-          <IvSlider label="HP" value={value.sta} onChange={(v) => set({ sta: v })} />
-        </div>
+    <div className="iv-percent-ring">
+      <svg width="48" height="48" viewBox="0 0 48 48">
+        <circle cx="24" cy="24" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="4" />
+        <circle
+          cx="24" cy="24" r={r} fill="none"
+          stroke={color} strokeWidth="4"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+        />
+      </svg>
+      <div className="iv-percent-ring-text" style={{ color }}>
+        {percent}%
       </div>
     </div>
   );
@@ -64,24 +159,19 @@ export function IvInput({ value, onChange }: Props) {
 function IvSlider({ label, value, onChange }: {
   label: string; value: number | null; onChange: (v: number | null) => void;
 }) {
-  const color = value === null ? 'var(--text-dim)'
-    : value === 15 ? 'var(--iv-perfect)'
-    : value >= 13 ? 'var(--iv-high)'
-    : value >= 8 ? 'var(--iv-mid)'
-    : 'var(--iv-low)';
+  const comment = value !== null ? getStatComment(value) : null;
 
   return (
-    <div style={{ flex: 1, textAlign: 'center' }}>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginBottom: 2 }}>{label}</div>
-      <div style={{
-        fontSize: '1.4rem',
-        fontWeight: 700,
-        color,
-        margin: '2px 0 6px',
-        fontVariantNumeric: 'tabular-nums',
-      }}>
+    <div className="iv-slider">
+      <div className="iv-slider-label">{label}</div>
+      <div className="iv-slider-value" style={{ color: ivColor(value) }}>
         {value ?? '-'}
       </div>
+      {comment && (
+        <div className="iv-slider-comment" style={{ color: ivColor(value) }}>
+          {comment}
+        </div>
+      )}
       <input
         type="range"
         min={0}
@@ -89,19 +179,7 @@ function IvSlider({ label, value, onChange }: {
         value={value ?? 0}
         onChange={(e) => onChange(Number(e.target.value))}
       />
-      <button
-        onClick={() => onChange(null)}
-        style={{
-          marginTop: 4,
-          fontSize: '0.65rem',
-          background: 'none',
-          border: 'none',
-          color: 'var(--text-dim)',
-          cursor: 'pointer',
-          textDecoration: 'underline',
-          padding: 2,
-        }}
-      >
+      <button className="iv-slider-unknown" onClick={() => onChange(null)}>
         不明
       </button>
     </div>

@@ -308,12 +308,14 @@ function buildSingleRankEntry(
       ivAtk, ivDef, ivSta, cpm,
     );
 
+    const bestSp = sorted[0] ?? 1;
     leagues[league] = {
       rank: findRank(sorted, me.sp),
       cp: me.cp,
       level: me.level,
       scp: calcScp(me.sp),
       preCp,
+      percentOfBest: Math.round((me.sp / bestSp) * 10000) / 100,
     };
   }
 
